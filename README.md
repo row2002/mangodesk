@@ -3,6 +3,8 @@
 Free Studio 3T-style MongoDB GUI. Local web app: Node + Express + the official
 `mongodb` driver, vanilla-JS frontend, no build step.
 
+![MangoDesk — data browser with query builder](docs/screenshot.png)
+
 ## Run
 
 ```
