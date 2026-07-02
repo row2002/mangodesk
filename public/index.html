@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MangoDesk</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="css/connections.css">
+  <link rel="stylesheet" href="css/browser.css">
+  <link rel="stylesheet" href="css/querybuilder.css">
+  <link rel="stylesheet" href="css/export.css">
+</head>
+<body>
+  <header id="topbar">
+    <button id="sidebar-toggle" title="Toggle sidebar">☰</button>
+    <span id="logo">🥭 MangoDesk</span>
+    <span id="target-label"></span>
+  </header>
+  <div id="layout">
+    <aside id="sidebar">
+      <section id="connections-panel"></section>
+    </aside>
+    <main id="main">
+      <nav id="tabs">
+        <button class="tab-btn active" data-tab="data">Data</button>
+        <button class="tab-btn" data-tab="export">Export</button>
+        <button id="qb-toggle" class="active" title="Toggle Visual Query Builder">◧ Query Builder</button>
+      </nav>
+      <section id="tab-data" class="tab-content active"></section>
+      <section id="tab-export" class="tab-content"></section>
+    </main>
+    <aside id="query-panel"></aside>
+  </div>
+  <script src="app.js"></script>
+  <script src="js/connections.js"></script>
+  <script src="js/browser.js"></script>
+  <script src="js/querybuilder.js"></script>
+  <script src="js/export.js"></script>
+</body>
+</html>

@@ -1,0 +1,227 @@
+/* Connection manager panel */
+.conn-header {
+  display: flex;
+  align-items: center;
+  padding-right: 8px;
+  gap: 6px;
+}
+.conn-header .panel-title { flex: 1; }
+
+.conn-add {
+  padding: 0 8px;
+  line-height: 20px;
+  font-size: 14px;
+}
+
+/* ---------- settings dialog ---------- */
+
+.conn-dialog {
+  width: 480px;
+  max-width: 92vw;
+  padding: 0;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.conn-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+
+.conn-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+}
+
+.conn-dlg-title { margin: 0; font-size: 15px; }
+
+.conn-mode {
+  display: flex;
+  padding: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.conn-mode button {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 4px;
+}
+.conn-mode button.active {
+  background: var(--accent-dim);
+  color: #fff;
+}
+
+.conn-std, .conn-uri { display: flex; flex-direction: column; gap: 10px; }
+.conn-std[hidden], .conn-uri[hidden] { display: none; }
+
+.conn-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.conn-label { font-size: 12px; color: var(--text-dim); }
+.conn-field input { min-width: 0; width: 100%; }
+.conn-hint { font-size: 11px; }
+
+.conn-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.conn-row2.hostport { grid-template-columns: 1fr 96px; }
+
+.conn-pass { display: flex; gap: 4px; }
+.conn-pass input { flex: 1; width: auto; }
+.conn-pass-toggle { padding: 0 8px; font-size: 12px; flex: none; }
+.conn-pass-toggle.active { border-color: var(--accent); }
+
+.conn-section {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 3px;
+  margin-top: 4px;
+}
+
+.conn-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.conn-check input { margin: 0; }
+
+.conn-uri-preview {
+  font-size: 11px;
+  padding: 4px 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  word-break: break-all;
+}
+.conn-uri-preview:empty { display: none; }
+
+.conn-form-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.conn-footer-spacer { flex: 1; }
+
+.conn-test-result { font-size: 12px; }
+.conn-test-result.ok { color: var(--ok); }
+.conn-test-result.err { color: var(--danger); }
+
+.conn-form-error {
+  color: var(--danger);
+  font-size: 12px;
+  min-height: 0;
+}
+.conn-form-error:empty { display: none; }
+
+/* ---------- connection tree ---------- */
+
+.conn-list { padding: 4px 0 8px; overflow-y: auto; }
+
+.conn-empty { padding: 4px 12px; }
+
+.conn-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px 5px 8px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  min-width: 0;
+  user-select: none;
+}
+
+.conn-item:hover { background: var(--panel-2); }
+
+.conn-item.selected {
+  background: var(--panel-2);
+  border-left-color: var(--accent);
+}
+
+.conn-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.conn-host {
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.conn-status {
+  flex: none;
+  width: 14px;
+  text-align: center;
+}
+.conn-status.ok { color: var(--ok); }
+.conn-status.err { color: var(--danger); cursor: help; }
+
+.conn-actions {
+  display: none;
+  gap: 4px;
+  flex: none;
+}
+
+.conn-item:hover .conn-actions { display: inline-flex; }
+
+.conn-act {
+  padding: 1px 6px;
+  font-size: 11px;
+  border-radius: 4px;
+}
+
+.conn-children { border-left: 1px solid var(--border); margin-left: 14px; }
+.conn-children[hidden] { display: none; }
+
+/* ---------- startup connection picker (same panel, shown as a modal) ---------- */
+
+#conn-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(0, 0, 0, 0.55);
+}
+#conn-overlay[hidden] { display: none; }
+
+.conn-close { display: none; }
+
+body.conn-modal #connections-panel {
+  position: fixed;
+  z-index: 91;
+  top: 14vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 520px;
+  max-width: 92vw;
+  max-height: 72vh;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  padding-bottom: 6px;
+}
+
+body.conn-modal .conn-close {
+  display: inline-block;
+  padding: 0 8px;
+  line-height: 20px;
+}
+
+body.conn-modal .conn-header { padding: 6px 8px 2px 0; }
+body.conn-modal .conn-item { padding-top: 8px; padding-bottom: 8px; }
+body.conn-modal .conn-actions { display: inline-flex; }

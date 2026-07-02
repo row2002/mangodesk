@@ -1,0 +1,53 @@
+/* Export tab: single centered card */
+.export-wrap {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 20px;
+  overflow: auto;
+}
+
+.export-card {
+  width: 100%;
+  max-width: 480px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.export-card .panel-title { padding: 8px 0 0; }
+
+.export-target { font-size: 14px; }
+
+.export-hint:empty, .export-note:empty, .export-error:empty { display: none; }
+
+.export-query {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+}
+
+.export-note { font-style: italic; }
+
+.export-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.export-controls select { flex: 1; }
+.export-limit { width: 110px; }
+
+.export-error { color: var(--danger); }

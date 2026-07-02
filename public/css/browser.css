@@ -1,0 +1,292 @@
+/* ---------- Tree ---------- */
+
+.tree-hint { padding: 6px 12px; }
+
+.tree-db-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.tree-db-head:hover { background: var(--panel-2); }
+
+.tree-arrow {
+  width: 12px;
+  flex: none;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.tree-coll {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 12px 3px 28px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.tree-coll:hover { background: var(--panel-2); }
+.tree-coll.active { background: var(--accent-dim); color: #fff; }
+.tree-coll.active .tree-count { color: rgba(255, 255, 255, 0.75); }
+
+.tree-coll-name { overflow: hidden; text-overflow: ellipsis; }
+.tree-count { font-size: 11px; flex: none; }
+.tree-error { color: var(--danger); cursor: default; }
+
+/* ---------- Query bar (Query / Projection / Sort / Skip / Limit) ---------- */
+
+#query-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.qbar-row { display: flex; align-items: center; gap: 8px; }
+
+.qbar-row label {
+  flex: none;
+  width: 68px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.qbar-row input { flex: 1; min-width: 0; font-size: 12px; }
+.qbar-row .qbar-num { flex: 0 0 130px; }
+.qbar-spacer { flex: 1; }
+#q-run { flex: none; white-space: nowrap; }
+
+/* ---------- Result / Query Code tabs ---------- */
+
+#result-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px 10px 0;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+#result-tabs button {
+  padding: 5px 14px;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+#result-tabs button.active {
+  background: var(--bg);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+#rtab-result { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#rtab-result[hidden] { display: none; }
+
+#rtab-code { flex: 1; overflow: auto; padding: 10px; }
+#rtab-code[hidden] { display: none; }
+
+#query-code {
+  margin: 0 0 8px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ---------- Grid toolbar ---------- */
+
+#grid-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+#grid-insert { margin-left: auto; }
+
+#grid-pageinfo { white-space: nowrap; font-size: 12px; }
+
+#grid-error {
+  color: var(--danger);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+  white-space: pre-wrap;
+}
+#grid-error:empty { display: none; }
+
+#grid-body { flex: 1; min-height: 0; overflow: auto; }
+
+.grid-hint { padding: 32px; text-align: center; }
+
+/* ---------- Table view ---------- */
+
+.data-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+}
+
+.data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel-2);
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.data-table th:hover { color: var(--accent); }
+.data-table th.th-actions { cursor: default; }
+
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 7px;
+  cursor: col-resize;
+  z-index: 2;
+}
+.col-resizer:hover { background: var(--accent-dim); }
+
+.data-table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.data-table tbody tr:hover td { background: var(--panel); }
+
+.cell-oid { color: var(--accent); }
+.cell-date { color: var(--ok); }
+
+.row-actions { text-align: right; }
+.row-actions button {
+  padding: 1px 8px;
+  font-size: 11px;
+  margin-left: 4px;
+}
+
+/* ---------- Tree view ---------- */
+
+.tree-table th.th-actions { cursor: default; }
+.tree-table th.th-actions:hover { color: inherit; }
+
+.tree-key { user-select: none; white-space: nowrap; }
+.tree-key .tree-arrow { display: inline-block; width: 14px; }
+.tree-key.expandable { cursor: pointer; }
+.tree-key.expandable:hover { color: var(--accent); }
+
+.tree-summary { color: var(--accent); }
+.tree-type { font-size: 11px; }
+
+/* inline dblclick value editor */
+td .cell-edit {
+  width: 100%;
+  min-width: 120px;
+  padding: 1px 4px;
+  font-size: 12px;
+}
+
+/* ---------- JSON view ---------- */
+
+.json-doc {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 8px 10px;
+  background: var(--panel);
+}
+
+.json-doc pre {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  overflow-x: auto;
+}
+
+.json-doc-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 5px 10px;
+  border-top: 1px solid var(--border);
+}
+.json-doc-actions button { padding: 2px 10px; font-size: 11px; }
+
+/* ---------- Modal ---------- */
+
+#doc-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+#doc-modal[hidden] { display: none; }
+
+.modal-box {
+  width: 640px;
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+
+.modal-box .panel-title { padding: 0; }
+
+.modal-box textarea {
+  width: 100%;
+  height: 320px;
+  resize: vertical;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+}
+
+.modal-error {
+  min-height: 1.2em;
+  color: var(--danger);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

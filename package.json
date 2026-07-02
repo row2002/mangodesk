@@ -1,0 +1,15 @@
+{
+  "name": "mangodesk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Free Studio 3T-style MongoDB GUI: connections, data browser, drag&drop query builder, export",
+  "license": "MIT",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mongodb": "^6.8.0"
+  }
+}
