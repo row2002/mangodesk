@@ -333,26 +333,58 @@
   }
 
   function startCellEdit(td, doc, path, rerender) {
-    if (td.querySelector('input')) return;
+    if (td.querySelector('input, select')) return;
     const cur = getPathVal(doc, path);
     td.textContent = '';
     td.className = '';
     td.title = '';
-    const inp = document.createElement('input');
-    inp.className = 'cell-edit mono';
-    // unwrap canonical number wrappers for friendlier editing; other EJSON stays as-is
-    const numWrap = (cur !== null && typeof cur === 'object')
-      ? (cur.$numberInt ?? cur.$numberLong ?? cur.$numberDouble ?? cur.$numberDecimal)
-      : undefined;
-    inp.value = cur === undefined ? '' : (numWrap !== undefined ? String(numWrap) : JSON.stringify(cur));
+    let inp, getVal, saveOnChange = false;
+    if (typeof cur === 'boolean') {
+      inp = document.createElement('select');
+      inp.className = 'cell-edit';
+      for (const v of ['true', 'false']) {
+        const o = document.createElement('option');
+        o.value = o.textContent = v;
+        inp.appendChild(o);
+      }
+      inp.value = String(cur);
+      getVal = () => inp.value === 'true';
+      saveOnChange = true; // picking an option is the whole edit
+    } else if (cur !== null && typeof cur === 'object' && cur.$date !== undefined) {
+      inp = document.createElement('input');
+      inp.type = 'datetime-local';
+      inp.step = '0.001'; // keep seconds/milliseconds editable
+      inp.className = 'cell-edit';
+      const d = typeof cur.$date === 'object'
+        ? new Date(Number(cur.$date.$numberLong)) : new Date(cur.$date);
+      // datetime-local is local time; shift so the shown value matches the stored instant
+      if (!isNaN(d.getTime())) {
+        inp.value = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 23);
+      }
+      getVal = () => {
+        const ms = new Date(inp.value).getTime();
+        return Number.isFinite(ms) ? { $date: { $numberLong: String(ms) } } : undefined;
+      };
+    } else {
+      inp = document.createElement('input');
+      inp.className = 'cell-edit mono';
+      // unwrap canonical number wrappers for friendlier editing; other EJSON stays as-is
+      const numWrap = (cur !== null && typeof cur === 'object')
+        ? (cur.$numberInt ?? cur.$numberLong ?? cur.$numberDouble ?? cur.$numberDecimal)
+        : undefined;
+      inp.value = cur === undefined ? '' : (numWrap !== undefined ? String(numWrap) : JSON.stringify(cur));
+      getVal = () => {
+        const text = inp.value.trim();
+        try { return JSON.parse(text); } catch { return text; } // bare text becomes a string
+      };
+    }
     let done = false;
     const finish = (save) => {
       if (done) return;
       done = true;
       if (!save) { rerender(); return; }
-      const text = inp.value.trim();
-      let val;
-      try { val = JSON.parse(text); } catch { val = text; } // bare text becomes a string
+      const val = getVal();
+      if (val === undefined) { rerender(); return; } // unparsable date — discard the edit
       setPathVal(doc, path, val);
       App.api('/api/doc', { method: 'PUT', body: { ...target(), id: JSON.stringify(doc._id), doc: JSON.stringify(doc) } })
         .then(() => { errBox.textContent = ''; rerender(); })
@@ -362,10 +394,11 @@
       if (e.key === 'Enter') finish(true);
       else if (e.key === 'Escape') finish(false);
     });
+    if (saveOnChange) inp.addEventListener('change', () => finish(true));
     inp.addEventListener('blur', () => finish(false));
     td.appendChild(inp);
     inp.focus();
-    inp.select();
+    if (inp.select) inp.select();
   }
 
   /* ---- resizable columns (widths remembered per collection & view) ---- */
