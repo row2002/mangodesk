@@ -362,10 +362,19 @@
 
   App.on('connection-selected', closePicker);
 
-  // Startup: force picking a connection before any data is shown.
+  // Startup: reopen the last collection if it's still valid, otherwise show the picker.
   reload(false)
     .catch((e) => alert('Failed to load connections: ' + e.message))
     .then(() => {
+      let last = null;
+      try { last = JSON.parse(localStorage.getItem('lastTarget')); } catch { /* ignore */ }
+      if (last && last.collection && connections.some((c) => c.id === last.connectionId)) {
+        selectedId = last.connectionId;
+        App.setTarget(last.connectionId, last.db, last.collection);
+        expanded.add(last.connectionId);
+        render(); // re-render emits connection-expanded → tree loads and opens the active db
+        return;
+      }
       openPicker();
       if (!connections.length) openForm('');
     });

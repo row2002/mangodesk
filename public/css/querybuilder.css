@@ -134,6 +134,52 @@
   padding: 2px 6px;
 }
 
+/* $in value chips */
+.qb-chips {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: text;
+}
+.qb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 2px 1px 7px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.qb-chip-x {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  padding: 0 3px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+.qb-chip-x:hover { color: var(--accent); }
+.qb-val-slot .qb-chip-input {
+  flex: 1;
+  width: auto;
+  min-width: 60px;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 12px;
+  padding: 2px;
+}
+
 .qb-x {
   background: transparent;
   border: none;

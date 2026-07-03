@@ -5,9 +5,15 @@
 
   // Panel show/hide toggle (Studio 3T "Hide Query Builder").
   const toggleBtn = document.getElementById('qb-toggle');
+  const qbSaved = localStorage.getItem('mangodesk.qbOpen');
+  if (qbSaved !== null) {
+    root.hidden = qbSaved !== '1';
+    toggleBtn.classList.toggle('active', !root.hidden);
+  }
   toggleBtn.addEventListener('click', () => {
     root.hidden = !root.hidden;
     toggleBtn.classList.toggle('active', !root.hidden);
+    localStorage.setItem('mangodesk.qbOpen', root.hidden ? '0' : '1');
   });
 
   // ---- state ----
@@ -257,11 +263,43 @@
         valSlot.appendChild(sel);
         return;
       }
-      const inp = el('input');
       if (cond.op === 'in') {
-        inp.type = 'text';
-        inp.placeholder = 'a, b, c';
-      } else if (cond.type === 'number') {
+        // chip list; cond.value stays a comma-joined string so condToObj is unchanged
+        const box = el('span', 'qb-chips');
+        const chipInp = el('input', 'qb-chip-input');
+        chipInp.placeholder = 'value ⏎';
+        const vals = () => cond.value.split(',').map((x) => x.trim()).filter(Boolean);
+        const sync = (arr) => { cond.value = arr.join(', '); redraw(); update(); };
+        function redraw() {
+          box.querySelectorAll('.qb-chip').forEach((n) => n.remove());
+          vals().forEach((v, i) => {
+            const chip = el('span', 'qb-chip', v);
+            const x = el('button', 'qb-chip-x', '×');
+            x.type = 'button';
+            x.title = 'Remove value';
+            x.addEventListener('click', () => { const a = vals(); a.splice(i, 1); sync(a); });
+            chip.appendChild(x);
+            box.insertBefore(chip, chipInp);
+          });
+        }
+        const commit = () => {
+          if (!chipInp.value.trim()) return;
+          sync([...vals(), chipInp.value]); // vals() re-splits, so pasted "a, b, c" becomes chips
+          chipInp.value = '';
+        };
+        chipInp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); commit(); }
+          else if (e.key === 'Backspace' && !chipInp.value) sync(vals().slice(0, -1));
+        });
+        chipInp.addEventListener('blur', commit);
+        box.addEventListener('click', (e) => { if (e.target === box) chipInp.focus(); });
+        box.appendChild(chipInp);
+        redraw();
+        valSlot.appendChild(box);
+        return;
+      }
+      const inp = el('input');
+      if (cond.type === 'number') {
         inp.type = 'number';
         inp.step = 'any';
       } else if (cond.type === 'date') {

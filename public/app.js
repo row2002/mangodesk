@@ -14,6 +14,7 @@ const App = {
   // Set the active collection. Emits 'target' with state.
   setTarget(connectionId, db, collection) {
     Object.assign(this.state, { connectionId, db, collection });
+    localStorage.setItem('lastTarget', JSON.stringify(this.state));
     document.getElementById('target-label').textContent =
       collection ? `${db}.${collection}` : '';
     this.emit('target', this.state);
@@ -43,7 +44,9 @@ const App = {
 document.querySelectorAll('.tab-btn').forEach((b) =>
   b.addEventListener('click', () => App.showTab(b.dataset.tab)));
 
+const sidebar = document.getElementById('sidebar');
+if (localStorage.getItem('mangodesk.sidebarHidden') === '1') sidebar.hidden = true;
 document.getElementById('sidebar-toggle').addEventListener('click', () => {
-  const sb = document.getElementById('sidebar');
-  sb.hidden = !sb.hidden;
+  sidebar.hidden = !sidebar.hidden;
+  localStorage.setItem('mangodesk.sidebarHidden', sidebar.hidden ? '1' : '0');
 });

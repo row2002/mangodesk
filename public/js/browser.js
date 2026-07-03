@@ -24,7 +24,14 @@
     }
     container.textContent = '';
     if (!dbs.length) container.appendChild(treeHintEl('(no databases)'));
-    dbs.forEach((dbName) => container.appendChild(dbNode(connId, dbName)));
+    dbs.forEach((dbName) => {
+      const node = dbNode(connId, dbName);
+      container.appendChild(node);
+      // auto-open the active db so the current collection is visible in the tree
+      if (connId === App.state.connectionId && dbName === App.state.db) {
+        node.querySelector('.tree-db-head').click();
+      }
+    });
   }
 
   App.on('connection-expanded', ({ connectionId, container }) =>
@@ -74,6 +81,8 @@
           c.className = 'tree-count muted';
           c.textContent = count;
           row.append(n, c);
+          if (connId === App.state.connectionId && dbName === App.state.db
+            && name === App.state.collection) row.classList.add('active');
           row.addEventListener('click', () => {
             document.querySelectorAll('#connections-panel .tree-coll.active')
               .forEach((el) => el.classList.remove('active'));
@@ -171,8 +180,8 @@
     filter: '', sort: '', projection: '',
     userSkip: 0, userLimit: 0, // Skip/Limit fields — the query window
     sortField: null, sortDir: 1,
-    page: 0, pageSize: 50,
-    view: 'tree',
+    page: 0, pageSize: Number(localStorage.getItem('mangodesk.pageSize')) || 50,
+    view: localStorage.getItem('mangodesk.view') || 'tree',
     docs: [], effTotal: 0,
     total: 0, needCount: true, // countDocuments once per query, reuse while paginating
   };
@@ -739,13 +748,18 @@
   document.getElementById('grid-refresh').addEventListener('click', () => { g.needCount = true; load(); });
   document.getElementById('grid-insert').addEventListener('click', insertDoc);
 
+  document.getElementById('grid-viewsel').value = g.view;
+  document.getElementById('grid-pagesize').value = String(g.pageSize);
+
   document.getElementById('grid-viewsel').addEventListener('change', (e) => {
     g.view = e.target.value;
+    localStorage.setItem('mangodesk.view', g.view);
     render();
   });
 
   document.getElementById('grid-pagesize').addEventListener('change', (e) => {
     g.pageSize = Number(e.target.value);
+    localStorage.setItem('mangodesk.pageSize', String(g.pageSize));
     g.page = 0;
     load();
   });
