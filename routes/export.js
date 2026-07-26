@@ -11,23 +11,53 @@ const bad = (msg) => Object.assign(new Error(msg), { status: 400 });
 const CONTENT_TYPES = {
   json: 'application/json',
   ndjson: 'application/x-ndjson',
-  csv: 'text/csv',
+  csv: 'text/csv; charset=utf-8',
 };
 
 function parseEjson(str, fallback) {
   return str && str.trim() ? EJSON.parse(str) : fallback;
 }
 
-function csvEscape(s) {
-  if (/[,"\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+function csvEscape(s, delim = ',') {
+  if (s.includes(delim) || /["\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
   return s;
+}
+
+// BSON scalars whose toString() is the value a human expects in a cell.
+const BSON_SCALARS = new Set(['ObjectId', 'Decimal128', 'Long', 'Int32', 'Double', 'UUID', 'BSONSymbol']);
+
+// Plain-text rendering of a BSON scalar, or undefined if it has none.
+function bsonScalar(v) {
+  const t = v._bsontype;
+  if (BSON_SCALARS.has(t)) return v.toString();
+  if (t === 'Binary') return v.sub_type === 4 ? v.toUUID().toString() : v.toString('base64');
+  if (t === 'Timestamp') return `${v.t}.${v.i}`;
+  if (t === 'MinKey' || t === 'MaxKey') return t; // toString() is [object Object]
+  return undefined;
+}
+
+// Same unwrapping one level down, so nested docs don't leak $numberDecimal either.
+// Read the raw value off the holder: toJSON runs before the replacer, and BSON's
+// toJSON is exactly the extended-JSON form we're trying to avoid.
+function nestedReplacer(k, v) {
+  const raw = this[k];
+  if (raw && raw._bsontype) {
+    const s = bsonScalar(raw);
+    if (s !== undefined) return s;
+  }
+  return v;
 }
 
 function csvValue(v) {
   if (v === null || v === undefined) return '';
   if (v instanceof Date) return v.toISOString();
-  if (v._bsontype === 'ObjectId') return v.toHexString();
-  if (typeof v === 'object') return EJSON.stringify(EJSON.serialize(v));
+  if (typeof v === 'object') {
+    if (v._bsontype) {
+      const s = bsonScalar(v);
+      if (s !== undefined) return s;
+    }
+    return JSON.stringify(v, nestedReplacer);
+  }
   // formula-injection guard: keep spreadsheet apps from executing string values
   if (typeof v === 'string' && /^[=+@\t\r-]/.test(v)) return "'" + v;
   return String(v);
@@ -123,9 +153,15 @@ router.post('/api/export', wrap(async (req, res) => {
         await write(res, EJSON.stringify(EJSON.serialize(doc)) + '\n');
       }
     } else {
-      await write(res, header.map(csvEscape).join(',') + '\n');
+      // Excel (RU/EU locale) needs a UTF-8 BOM to not mangle Cyrillic, ';' as the
+      // separator and CRLF; plain CSV consumers are better off without all three.
+      const excel = req.body.excel === '1' || req.body.excel === true;
+      const delim = excel ? ';' : ',';
+      const eol = excel ? '\r\n' : '\n';
+      if (excel) await write(res, '\uFEFF');
+      await write(res, header.map((h) => csvEscape(h, delim)).join(delim) + eol);
       for await (const doc of cursor) {
-        await write(res, header.map((k) => csvEscape(csvValue(dig(doc, k)))).join(',') + '\n');
+        await write(res, header.map((k) => csvEscape(csvValue(dig(doc, k)), delim)).join(delim) + eol);
       }
     }
     res.end();

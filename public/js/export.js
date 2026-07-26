@@ -32,11 +32,24 @@
   limitInput.placeholder = 'Limit (all)';
   limitInput.className = 'export-limit';
 
+  // CSV only: UTF-8 BOM + ';' + CRLF, so Excel on a RU/EU locale opens it correctly.
+  const excelChk = document.createElement('input');
+  excelChk.type = 'checkbox';
+  excelChk.checked = localStorage.getItem('mangodesk.csvExcel') !== '0';
+  const excelLabel = el('label', 'export-excel');
+  excelLabel.title = 'UTF-8 BOM, ";" separator, CRLF line endings';
+  excelLabel.append(excelChk, document.createTextNode(' Excel-compatible'));
+  excelChk.addEventListener('change', () =>
+    localStorage.setItem('mangodesk.csvExcel', excelChk.checked ? '1' : '0'));
+
   const exportBtn = document.createElement('button');
   exportBtn.className = 'primary';
   exportBtn.textContent = 'Export';
 
-  controls.append(formatSel, limitInput, exportBtn);
+  controls.append(formatSel, limitInput, excelLabel, exportBtn);
+  const syncFormat = () => { excelLabel.hidden = formatSel.value !== 'csv'; };
+  formatSel.addEventListener('change', syncFormat);
+  syncFormat();
 
   const errorEl = el('div', 'export-error');
 
@@ -106,14 +119,34 @@
     let text = '';
     try { text = frame.contentDocument.body.textContent.trim(); } catch { /* ignore */ }
     if (!text) return; // initial about:blank load
+    idle();
     try { errorEl.textContent = JSON.parse(text).error || text; } catch { errorEl.textContent = text; }
   });
   document.body.appendChild(frame);
+
+  // A successful download never navigates the sink frame, so there is no event to wait
+  // for — hold the button briefly, then hand off to the browser's download UI.
+  let busyTimer = null;
+  function busy() {
+    exportBtn.disabled = true;
+    exportBtn.textContent = 'Preparing…';
+    clearTimeout(busyTimer);
+    busyTimer = setTimeout(() => {
+      idle();
+      if (!errorEl.textContent) App.toast('Export started — see your browser downloads');
+    }, 2000);
+  }
+  function idle() {
+    clearTimeout(busyTimer);
+    exportBtn.disabled = false;
+    exportBtn.textContent = 'Export';
+  }
 
   // Plain form POST so the browser streams the download straight to disk
   // instead of buffering the whole export in a blob.
   function doExport() {
     errorEl.textContent = '';
+    busy();
     const { connectionId, db, collection } = App.state;
     const fields = {
       connectionId, db, collection, format: formatSel.value,
@@ -122,6 +155,7 @@
       projection: lastQuery ? lastQuery.projection : '',
       skip: (lastQuery && lastQuery.skip) || '0',
       limit: limitInput.value || (lastQuery && lastQuery.limit) || '0',
+      excel: formatSel.value === 'csv' && excelChk.checked ? '1' : '',
     };
     const form = document.createElement('form');
     form.method = 'POST';

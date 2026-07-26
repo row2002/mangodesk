@@ -113,7 +113,8 @@
     <div id="query-bar">
       <div class="qbar-row">
         <label for="q-filter">Query</label>
-        <input id="q-filter" class="mono" spellcheck="false" placeholder="{}">
+        <textarea id="q-filter" class="mono" spellcheck="false" rows="1" placeholder="{}"></textarea>
+        <button id="q-history-btn" title="Recent queries">⌄</button>
         <button id="q-run" class="primary">▶ Run</button>
       </div>
       <div class="qbar-row">
@@ -133,6 +134,7 @@
     <nav id="result-tabs">
       <button data-rtab="result" class="active">Result</button>
       <button data-rtab="code">Query Code</button>
+      <button data-rtab="explain">Explain</button>
     </nav>
     <div id="grid-error"></div>
     <div id="rtab-result">
@@ -148,6 +150,13 @@
           <option value="50" selected>50</option>
           <option value="100">100</option>
         </select>
+        <button id="grid-expand" title="Expand / collapse all documents">⊞ Expand all</button>
+        <label id="grid-selall-wrap" title="Select every document on this page">
+          <input type="checkbox" id="grid-selall"> all
+        </label>
+        <span id="sel-info" class="muted"></span>
+        <button id="sel-delete" class="danger" hidden>Delete selected</button>
+        <button id="sel-clear" hidden>Clear</button>
         <select id="grid-viewsel" title="Select view">
           <option value="tree" selected>Tree View</option>
           <option value="table">Table View</option>
@@ -160,6 +169,13 @@
     <div id="rtab-code" hidden>
       <pre id="query-code"></pre>
       <button id="code-copy">Copy</button>
+    </div>
+    <div id="rtab-explain" hidden>
+      <div id="explain-summary"></div>
+      <div class="panel-title">Indexes</div>
+      <pre id="explain-indexes"></pre>
+      <div class="panel-title">Query planner</div>
+      <pre id="explain-plan"></pre>
     </div>`;
 
   const filterInput = document.getElementById('q-filter');
@@ -184,6 +200,8 @@
     view: localStorage.getItem('mangodesk.view') || 'tree',
     docs: [], effTotal: 0,
     total: 0, needCount: true, // countDocuments once per query, reuse while paginating
+    cols: new Set(), // table columns seen so far in this query — keeps them from jumping
+    sel: new Set(),  // selected _id JSON, cleared on every load — selection is per page
   };
 
   function showHint(msg) {
@@ -197,9 +215,26 @@
   }
   showHint('Select a collection in the tree to browse its documents.');
 
+  const runBtn = document.getElementById('q-run');
+  const refreshBtn = document.getElementById('grid-refresh');
+  const insertBtn = document.getElementById('grid-insert');
+
+  // The pager's own enabled state is owned by render()/showHint(), which run right
+  // after — so busy only has to switch it off, never back on.
+  function setBusy(on) {
+    body.classList.toggle('busy', on);
+    runBtn.disabled = refreshBtn.disabled = insertBtn.disabled = on;
+    if (on) { selInfo.textContent = ''; selDelete.hidden = selClear.hidden = true; }
+    if (!on) return;
+    firstBtn.disabled = prevBtn.disabled = nextBtn.disabled = lastBtn.disabled = true;
+    pageInfo.textContent = 'Loading…';
+  }
+
   async function load() {
     const { connectionId, db, collection } = App.state;
     if (!collection) { showHint('Select a collection in the tree to browse its documents.'); return; }
+    g.sel.clear(); // selection is per page — a new result set invalidates it
+    setBusy(true);
     // page within the user-defined Skip/Limit window
     const skip = g.userSkip + g.page * g.pageSize;
     let limit = g.pageSize;
@@ -226,7 +261,12 @@
       App.emit('query-ran', { filter: g.filter, sort: g.sort, projection: g.projection,
         skip: g.userSkip, limit: g.userLimit });
     } catch (e) {
+      // drop the stale rows — leaving them next to an error reads as a successful query
+      g.docs = [];
       errBox.textContent = e.message;
+      showHint('Query failed — see the error above.');
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -242,6 +282,53 @@
     if (g.view === 'table') renderTable();
     else if (g.view === 'tree') renderTree();
     else renderJson();
+    renderSelBar();
+  }
+
+  /* ---- mongo-shell syntax in the query bar ---- */
+
+  // What people actually paste from Compass / Studio 3T / logs: unquoted keys,
+  // single quotes, ObjectId("…"), ISODate(…), /re/i, trailing commas. The server
+  // API stays strict EJSON — the text is normalised here before it is sent.
+  const SHELL = {
+    ObjectId: (v) => ({ $oid: String(v) }),
+    ISODate: (v) => new Date(v === undefined ? Date.now() : v),
+    NumberLong: (v) => ({ $numberLong: String(v) }),
+    NumberInt: (v) => ({ $numberInt: String(v) }),
+    NumberDouble: (v) => ({ $numberDouble: String(v) }),
+    NumberDecimal: (v) => ({ $numberDecimal: String(v) }),
+    UUID: (v) => ({ $uuid: String(v) }),
+    BinData: (t, v) => ({ $binary: { base64: String(v), subType: Number(t).toString(16).padStart(2, '0') } }),
+    MinKey: () => ({ $minKey: 1 }),
+    MaxKey: () => ({ $maxKey: 1 }),
+  };
+  SHELL.ObjectID = SHELL.ObjectId;
+  SHELL.Date = SHELL.ISODate;
+  const SHELL_NAMES = Object.keys(SHELL);
+
+  // Date/RegExp have to be read off the holder: their own toJSON runs first.
+  function ejsonReplacer(k, v) {
+    const raw = this[k];
+    if (raw instanceof RegExp) return { $regex: raw.source, $options: raw.flags };
+    if (raw instanceof Date) return { $date: raw.toISOString() };
+    return v;
+  }
+
+  // Returns strict EJSON text ('' for empty input); throws with a readable message.
+  function toEjsonText(text, label) {
+    const t = (text || '').trim();
+    if (!t) return '';
+    try { JSON.parse(t); return t; } catch { /* not strict JSON — try shell syntax */ }
+    let value;
+    try {
+      // eslint-disable-next-line no-new-func -- the user's own expression, in their own tab
+      value = new Function(...SHELL_NAMES, '"use strict"; return (' + t + ');')(
+        ...SHELL_NAMES.map((n) => SHELL[n]));
+    } catch (e) {
+      throw new Error(label + ': ' + e.message);
+    }
+    if (value === null || typeof value !== 'object') throw new Error(label + ' must be an object');
+    return JSON.stringify(value, ejsonReplacer);
   }
 
   /* ---- Query Code tab ---- */
@@ -312,8 +399,28 @@
   function makeDraggable(node, path, getValue) {
     node.draggable = true;
     node.addEventListener('dragstart', (e) => {
+      // Dragging selected text inside the inline editor bubbles up here — leave that
+      // drag alone, otherwise the QB payload replaces the text being moved.
+      if (e.target.classList && e.target.classList.contains('cell-edit')) return;
       e.stopPropagation();
       e.dataTransfer.setData('text/plain', JSON.stringify(dragPayload(path, getValue())));
+    });
+  }
+
+  /* ---- field names: single click acts, double click selects the name ---- */
+
+  // Header sort / tree expand fire on single click only; the action is deferred so a
+  // double click can cancel it and hand the name over to the selection instead.
+  function clickOrSelectName(node, labelEl, onClick) {
+    let timer = null;
+    node.addEventListener('click', () => {
+      clearTimeout(timer);
+      timer = setTimeout(onClick, 200);
+    });
+    node.addEventListener('dblclick', (e) => {
+      clearTimeout(timer);
+      e.stopPropagation();
+      getSelection().selectAllChildren(labelEl);
     });
   }
 
@@ -332,8 +439,12 @@
     o[parts[parts.length - 1]] = val;
   }
 
+  // EJSON scalar wrappers the inline editor unwraps and re-wraps ($date has its own picker)
+  const WRAPPERS = ['$oid', '$numberInt', '$numberLong', '$numberDouble', '$numberDecimal'];
+
   function startCellEdit(td, doc, path, rerender) {
     if (td.querySelector('input, select')) return;
+    if (!hasId(doc)) return;
     const cur = getPathVal(doc, path);
     td.textContent = '';
     td.className = '';
@@ -368,15 +479,30 @@
     } else {
       inp = document.createElement('input');
       inp.className = 'cell-edit mono';
-      // unwrap canonical number wrappers for friendlier editing; other EJSON stays as-is
-      const numWrap = (cur !== null && typeof cur === 'object')
-        ? (cur.$numberInt ?? cur.$numberLong ?? cur.$numberDouble ?? cur.$numberDecimal)
-        : undefined;
-      inp.value = cur === undefined ? '' : (numWrap !== undefined ? String(numWrap) : JSON.stringify(cur));
-      getVal = () => {
-        const text = inp.value.trim();
-        try { return JSON.parse(text); } catch { return text; } // bare text becomes a string
-      };
+      // Edit the bare value, not its EJSON wrapper ({"$oid":…}) or JSON quoting,
+      // and put the original shape back on save so the BSON type survives the edit.
+      const wrapKey = cur !== null && typeof cur === 'object'
+        && WRAPPERS.find((w) => cur[w] !== undefined);
+      if (wrapKey) {
+        inp.value = String(cur[wrapKey]);
+        getVal = () => {
+          const text = inp.value.trim();
+          if (wrapKey === '$oid' && !/^[0-9a-f]{24}$/i.test(text)) {
+            errBox.textContent = 'Not a valid ObjectId: ' + text;
+            return undefined;
+          }
+          return { [wrapKey]: text };
+        };
+      } else if (typeof cur === 'string') {
+        inp.value = cur;
+        getVal = () => inp.value; // a string stays a string — no quotes to type
+      } else {
+        inp.value = cur === undefined ? '' : JSON.stringify(cur);
+        getVal = () => {
+          const text = inp.value.trim();
+          try { return JSON.parse(text); } catch { return text; } // bare text becomes a string
+        };
+      }
     }
     let done = false;
     const finish = (save) => {
@@ -385,9 +511,16 @@
       if (!save) { rerender(); return; }
       const val = getVal();
       if (val === undefined) { rerender(); return; } // unparsable date — discard the edit
+      // snapshot before the write; _id is captured too in case the edit changes it
+      const id = JSON.stringify(doc._id);
+      const before = JSON.stringify(doc);
       setPathVal(doc, path, val);
-      App.api('/api/doc', { method: 'PUT', body: { ...target(), id: JSON.stringify(doc._id), doc: JSON.stringify(doc) } })
-        .then(() => { errBox.textContent = ''; rerender(); })
+      App.api('/api/doc', { method: 'PUT', body: { ...target(), id, doc: JSON.stringify(doc) } })
+        .then(() => {
+          errBox.textContent = '';
+          App.toast('Saved', false, () => revertDoc(id, before));
+          rerender();
+        })
         .catch((e) => { errBox.textContent = e.message; rerender(); });
     };
     inp.addEventListener('keydown', (e) => {
@@ -462,8 +595,10 @@
   }
 
   function renderTable() {
-    const keys = [];
-    g.docs.forEach((d) => Object.keys(d).forEach((k) => { if (!keys.includes(k)) keys.push(k); }));
+    // accumulate across pages of the same query, otherwise columns appear and vanish
+    // as you page through documents with different shapes
+    g.docs.forEach((d) => Object.keys(d).forEach((k) => g.cols.add(k)));
+    const keys = [...g.cols];
     const idIdx = keys.indexOf('_id');
     if (idIdx > 0) { keys.splice(idIdx, 1); keys.unshift('_id'); }
 
@@ -474,9 +609,11 @@
     keys.forEach((k) => {
       const th = document.createElement('th');
       th.dataset.col = k;
-      th.textContent = k + (g.sortField === k ? (g.sortDir === 1 ? ' ▲' : ' ▼') : '');
-      th.title = 'Sort by ' + k;
-      th.addEventListener('click', () => cycleSort(k));
+      const name = document.createElement('span');
+      name.textContent = k;
+      th.append(name, g.sortField === k ? (g.sortDir === 1 ? ' ▲' : ' ▼') : '');
+      th.title = 'Sort by ' + k + ' — double-click to select the name';
+      clickOrSelectName(th, name, () => cycleSort(k));
       hr.appendChild(th);
     });
     const thActions = document.createElement('th');
@@ -488,8 +625,10 @@
     const tbody = document.createElement('tbody');
     g.docs.forEach((doc) => {
       const tr = document.createElement('tr');
+      tr._doc = doc;
       keys.forEach((k) => {
         const td = document.createElement('td');
+        td._path = k;
         renderCell(td, doc[k]);
         makeDraggable(td, k, () => doc[k]);
         td.addEventListener('dblclick', () =>
@@ -498,7 +637,7 @@
       });
       const td = document.createElement('td');
       td.className = 'row-actions';
-      td.append(actionBtn('Edit', () => editDoc(doc)), actionBtn('Del', () => deleteDoc(doc), true));
+      td.append(...actionNodes(doc));
       tr.appendChild(td);
       tbody.appendChild(tr);
     });
@@ -515,6 +654,67 @@
     b.addEventListener('click', onClick);
     return b;
   }
+
+  /* ---- row selection ---- */
+
+  const selInfo = document.getElementById('sel-info');
+  const selDelete = document.getElementById('sel-delete');
+  const selClear = document.getElementById('sel-clear');
+  const selAll = document.getElementById('grid-selall');
+
+  const selKey = (doc) => (doc._id === undefined ? null : JSON.stringify(doc._id));
+
+  function renderSelBar() {
+    const n = g.sel.size;
+    selInfo.textContent = n ? n + ' selected' : '';
+    selDelete.hidden = selClear.hidden = !n;
+    selAll.checked = n > 0 && g.docs.every((d) => g.sel.has(selKey(d)));
+  }
+
+  // The checkbox rides along with Edit/Del instead of claiming its own column, so
+  // table rows, tree rows and JSON cards all get selection from one place.
+  function actionNodes(doc) {
+    const nodes = [];
+    const key = selKey(doc);
+    if (key) {
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'row-check';
+      cb.title = 'Select document';
+      cb.checked = g.sel.has(key);
+      cb.addEventListener('change', () => {
+        if (cb.checked) g.sel.add(key); else g.sel.delete(key);
+        renderSelBar();
+      });
+      nodes.push(cb);
+    }
+    nodes.push(actionBtn('Edit', () => editDoc(doc)), actionBtn('Del', () => deleteDoc(doc), true));
+    return nodes;
+  }
+
+  selAll.addEventListener('change', () => {
+    g.docs.forEach((d) => {
+      const key = selKey(d);
+      if (!key) return;
+      if (selAll.checked) g.sel.add(key); else g.sel.delete(key);
+    });
+    render();
+  });
+
+  selClear.addEventListener('click', () => { g.sel.clear(); render(); });
+
+  selDelete.addEventListener('click', async () => {
+    const ids = [...g.sel];
+    if (!await App.confirm(`Delete ${ids.length} document${ids.length === 1 ? '' : 's'}?`)) return;
+    try {
+      const r = await App.api('/api/docs/delete', { method: 'POST', body: { ...target(), ids } });
+      App.toast('Deleted ' + r.deletedCount);
+      g.needCount = true;
+      load();
+    } catch (e) {
+      errBox.textContent = e.message;
+    }
+  });
 
   /* ---- tree view ---- */
 
@@ -561,6 +761,8 @@
   function treeRow(key, value, depth, path, rootDoc) {
     const tr = document.createElement('tr');
     tr.className = 'tree-row';
+    tr._doc = rootDoc;
+    tr._path = path;
     const container = isContainer(value);
 
     const tdKey = document.createElement('td');
@@ -599,32 +801,36 @@
         }));
     }
 
-    if (container) {
-      tdKey.classList.add('expandable');
-      tdKey.addEventListener('click', () => {
-        if (tr._children) {
-          collapseTreeRow(tr);
-          arrow.textContent = '▸';
-          return;
-        }
-        arrow.textContent = '▾';
-        const entries = Array.isArray(value)
-          ? value.map((v, i) => ({ label: '[' + i + ']', childPath: path ? path + '.' + i : String(i), v }))
-          : Object.entries(value).map(([k, v]) => ({ label: k, childPath: path ? path + '.' + k : k, v }));
-        tr._children = [];
-        let anchor = tr;
-        for (const { label, childPath, v } of entries) {
-          const child = treeRow(label, v, depth + 1, childPath, rootDoc);
-          anchor.after(child.tr);
-          tr._children.push(child.tr);
-          anchor = child.tr;
-        }
-      });
-    }
-    return { tr };
+    const toggle = () => {
+      if (tr._children) {
+        collapseTreeRow(tr);
+        arrow.textContent = '▸';
+        return;
+      }
+      arrow.textContent = '▾';
+      const entries = Array.isArray(value)
+        ? value.map((v, i) => ({ label: '[' + i + ']', childPath: path ? path + '.' + i : String(i), v }))
+        : Object.entries(value).map(([k, v]) => ({ label: k, childPath: path ? path + '.' + k : k, v }));
+      tr._children = [];
+      let anchor = tr;
+      for (const { label, childPath, v } of entries) {
+        const child = treeRow(label, v, depth + 1, childPath, rootDoc);
+        anchor.after(child.tr);
+        tr._children.push(child.tr);
+        anchor = child.tr;
+      }
+    };
+    if (container) tdKey.classList.add('expandable');
+    clickOrSelectName(tdKey, keyLabel, container ? toggle : () => {});
+    return { tr, toggle };
   }
 
+  // Top-level document rows of the current tree render — Expand all works on these only;
+  // recursing into every nested field would blow the row count up for no real gain.
+  let rootRows = [];
+
   function renderTree() {
+    expandBtn.textContent = '⊞ Expand all';
     const table = document.createElement('table');
     table.className = 'data-table tree-table';
     const thead = document.createElement('thead');
@@ -639,13 +845,15 @@
     thead.appendChild(hr);
     const tbody = document.createElement('tbody');
 
+    rootRows = [];
     g.docs.forEach((doc) => {
-      const { tr } = treeRow(idLabel(doc), doc, 0, '', doc);
+      const root = treeRow(idLabel(doc), doc, 0, '', doc);
       const tdActions = document.createElement('td');
       tdActions.className = 'row-actions';
-      tdActions.append(actionBtn('Edit', () => editDoc(doc)), actionBtn('Del', () => deleteDoc(doc), true));
-      tr.appendChild(tdActions);
-      tbody.appendChild(tr);
+      tdActions.append(...actionNodes(doc));
+      root.tr.appendChild(tdActions);
+      tbody.appendChild(root.tr);
+      rootRows.push(root);
     });
 
     table.append(thead, tbody);
@@ -659,11 +867,12 @@
     g.docs.forEach((doc) => {
       const box = document.createElement('div');
       box.className = 'json-doc';
+      box._doc = doc;
       const pre = document.createElement('pre');
       pre.textContent = JSON.stringify(doc, null, 2);
       const actions = document.createElement('div');
       actions.className = 'json-doc-actions';
-      actions.append(actionBtn('Edit', () => editDoc(doc)), actionBtn('Delete', () => deleteDoc(doc), true));
+      actions.append(...actionNodes(doc));
       box.append(pre, actions);
       body.appendChild(box);
     });
@@ -671,9 +880,9 @@
 
   /* ---- modal ---- */
 
-  const modal = document.createElement('div');
+  // native <dialog>: Esc, focus trap, backdrop and focus restore for free
+  const modal = document.createElement('dialog');
   modal.id = 'doc-modal';
-  modal.hidden = true;
   const modalBox = document.createElement('div');
   modalBox.className = 'modal-box';
   const modalTitle = document.createElement('div');
@@ -684,35 +893,56 @@
   modalErr.className = 'modal-error';
   const modalActions = document.createElement('div');
   modalActions.className = 'modal-actions';
-  const cancelBtn = actionBtn('Cancel', () => { modal.hidden = true; });
+  const cancelBtn = actionBtn('Cancel', () => modal.close());
   const saveBtn = actionBtn('Save', onSaveClick);
   saveBtn.className = 'primary';
-  modalActions.append(cancelBtn, saveBtn);
+  const modalHint = document.createElement('span');
+  modalHint.className = 'muted modal-hint';
+  modalHint.textContent = 'Ctrl+Enter to save';
+  modalActions.append(modalHint, cancelBtn, saveBtn);
   modalBox.append(modalTitle, modalText, modalErr, modalActions);
   modal.appendChild(modalBox);
-  modal.addEventListener('click', (e) => { if (e.target === modal) modal.hidden = true; });
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.close(); });
   document.body.appendChild(modal);
 
   let modalSave = null;
+  let modalUndo = null;
 
-  function openModal(title, text, onSave) {
+  // Validate while typing so a stray comma is visible before Save is pressed.
+  function validateModal() {
+    let err = '';
+    try { JSON.parse(modalText.value); } catch (e) { err = e.message; }
+    modalErr.textContent = err;
+    saveBtn.disabled = !!err;
+  }
+  modalText.addEventListener('input', validateModal);
+  modalText.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); onSaveClick(); }
+  });
+
+  function openModal(title, text, onSave, onUndo) {
     modalTitle.textContent = title;
     modalText.value = text;
-    modalErr.textContent = '';
     modalSave = onSave;
-    modal.hidden = false;
+    modalUndo = onUndo || null;
+    validateModal();
+    modal.showModal();
     modalText.focus();
   }
 
   async function onSaveClick() {
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true;
     try {
-      JSON.parse(modalText.value); // quick local syntax check
       await modalSave(modalText.value);
-      modal.hidden = true;
+      modal.close();
+      App.toast('Saved', false, modalUndo);
       g.needCount = true;
       load();
     } catch (e) {
       modalErr.textContent = e.message;
+    } finally {
+      saveBtn.disabled = false;
     }
   }
 
@@ -723,9 +953,28 @@
     return { connectionId, db, collection };
   }
 
+  // Every write matches on _id, so a projection that drops it makes the row read-only.
+  function hasId(doc) {
+    if (doc._id !== undefined) return true;
+    errBox.textContent = 'Document has no _id (excluded by the projection?) — it cannot be edited or deleted here.';
+    return false;
+  }
+
+  // Put a snapshot back. Deletes are not undoable this way — the document is gone,
+  // so only edits offer Undo.
+  function revertDoc(id, docText) {
+    App.api('/api/doc', { method: 'PUT', body: { ...target(), id, doc: docText } })
+      .then(() => { App.toast('Reverted'); load(); })
+      .catch((e) => { errBox.textContent = e.message; });
+  }
+
   function editDoc(doc) {
-    openModal('Edit document', JSON.stringify(doc, null, 2), (text) =>
-      App.api('/api/doc', { method: 'PUT', body: { ...target(), id: JSON.stringify(doc._id), doc: text } }));
+    if (!hasId(doc)) return;
+    const id = JSON.stringify(doc._id);
+    const before = JSON.stringify(doc);
+    openModal('Edit document', JSON.stringify(doc, null, 2),
+      (text) => App.api('/api/doc', { method: 'PUT', body: { ...target(), id, doc: text } }),
+      () => revertDoc(id, before));
   }
 
   function insertDoc() {
@@ -734,13 +983,14 @@
   }
 
   async function deleteDoc(doc) {
-    if (doc._id === undefined) { errBox.textContent = 'Document has no _id — cannot delete it from here.'; return; }
-    if (!confirm('Delete this document?')) return;
+    if (!hasId(doc)) return;
+    if (!await App.confirm('Delete this document?')) return;
     try {
       await App.api('/api/doc', {
         method: 'DELETE',
         body: { ...target(), id: JSON.stringify(doc._id) },
       });
+      App.toast('Document deleted');
       g.needCount = true;
       load();
     } catch (e) {
@@ -751,29 +1001,141 @@
   /* ---- query bar + toolbar wiring ---- */
 
   function run() {
-    g.filter = filterInput.value.trim();
-    g.projection = projInput.value.trim();
-    g.sort = sortInput.value.trim();
+    try {
+      g.filter = toEjsonText(filterInput.value, 'Query');
+      g.projection = toEjsonText(projInput.value, 'Projection');
+      g.sort = toEjsonText(sortInput.value, 'Sort');
+    } catch (e) {
+      errBox.textContent = e.message;
+      return;
+    }
     g.userSkip = Math.max(0, parseInt(skipInput.value, 10) || 0);
     g.userLimit = Math.max(0, parseInt(limitInput.value, 10) || 0);
     g.sortField = null; // manual Sort text overrides column-cycle state
     g.page = 0;
     g.needCount = true;
+    g.cols.clear();
+    rememberQuery(filterInput.value.trim());
+    // remember the query bar per collection, so switching away and back keeps it
+    App.memSet('query', {
+      filter: filterInput.value,
+      projection: projInput.value,
+      sort: sortInput.value,
+      skip: skipInput.value,
+      limit: limitInput.value,
+    });
     load();
   }
 
+  /* ---- recent queries ---- */
+
+  // A textarea can't carry a <datalist>, so history is a small popup instead —
+  // which also shows the whole query rather than one truncated line.
+  const HIST_KEY = 'mangodesk.queryHistory';
+  const histBtn = document.getElementById('q-history-btn');
+
+  const readHistory = () => {
+    try { return JSON.parse(localStorage.getItem(HIST_KEY)) || []; } catch { return []; }
+  };
+
+  function rememberQuery(text) {
+    if (!text || text === '{}') return;
+    const items = [text, ...readHistory().filter((q) => q !== text)];
+    localStorage.setItem(HIST_KEY, JSON.stringify(items.slice(0, 20)));
+  }
+
+  histBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeCtx();
+    const items = readHistory();
+    if (!items.length) { App.toast('No queries yet'); return; }
+    const menu = document.createElement('div');
+    menu.className = 'ctx-menu q-history-menu';
+    for (const q of items) {
+      const b = document.createElement('button');
+      b.className = 'mono';
+      b.textContent = q;
+      b.title = q;
+      b.addEventListener('click', () => { filterInput.value = q; autoGrow(); run(); });
+      menu.appendChild(b);
+    }
+    const r = histBtn.getBoundingClientRect();
+    menu.style.left = Math.max(4, r.right - 420) + 'px';
+    menu.style.top = r.bottom + 2 + 'px';
+    document.body.appendChild(menu);
+    ctxMenu = menu;
+  });
+
+  /* ---- multi-line query field ---- */
+
+  function autoGrow() {
+    filterInput.style.height = 'auto';
+    filterInput.style.height = Math.min(filterInput.scrollHeight, 160) + 'px';
+  }
+  filterInput.addEventListener('input', autoGrow);
+
   document.getElementById('q-run').addEventListener('click', run);
-  [filterInput, projInput, sortInput, skipInput, limitInput].forEach((i) =>
+  [projInput, sortInput, skipInput, limitInput].forEach((i) =>
     i.addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); }));
+  // textarea: Enter runs, Shift+Enter inserts the newline
+  filterInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); run(); }
+  });
 
   document.querySelectorAll('#result-tabs button').forEach((b) =>
     b.addEventListener('click', () => {
       document.querySelectorAll('#result-tabs button')
         .forEach((x) => x.classList.toggle('active', x === b));
-      document.getElementById('rtab-result').hidden = b.dataset.rtab !== 'result';
-      document.getElementById('rtab-code').hidden = b.dataset.rtab !== 'code';
-      if (b.dataset.rtab === 'code') renderCode();
+      const tab = b.dataset.rtab;
+      for (const name of ['result', 'code', 'explain']) {
+        document.getElementById('rtab-' + name).hidden = tab !== name;
+      }
+      if (tab === 'code') renderCode();
+      if (tab === 'explain') loadExplain();
     }));
+
+  /* ---- Explain tab ---- */
+
+  const explainSummary = document.getElementById('explain-summary');
+  const explainIndexes = document.getElementById('explain-indexes');
+  const explainPlan = document.getElementById('explain-plan');
+
+  // Walk the winning plan for the stage names — COLLSCAN is the one worth shouting about.
+  function planStages(stage, out = []) {
+    if (!stage || typeof stage !== 'object') return out;
+    if (stage.stage) out.push(stage.stage);
+    if (stage.inputStage) planStages(stage.inputStage, out);
+    (stage.inputStages || []).forEach((s) => planStages(s, out));
+    return out;
+  }
+
+  async function loadExplain() {
+    const { connectionId, db, collection } = App.state;
+    if (!collection) { explainSummary.textContent = 'Select a collection first.'; return; }
+    explainSummary.textContent = 'Explaining…';
+    explainIndexes.textContent = explainPlan.textContent = '';
+    try {
+      const res = await App.api('/api/explain', {
+        method: 'POST',
+        body: { connectionId, db, collection, filter: g.filter, sort: g.sort, projection: g.projection },
+      });
+      const winning = (res.plan.queryPlanner || {}).winningPlan;
+      const stages = planStages(winning);
+      const index = (winning && winning.inputStage && winning.inputStage.indexName)
+        || (winning && winning.indexName);
+      const scan = stages.includes('COLLSCAN');
+      explainSummary.className = scan ? 'explain-warn' : 'explain-ok';
+      explainSummary.textContent = scan
+        ? 'COLLSCAN — every document is read. Add an index on the filtered/sorted fields.'
+        : `Index scan${index ? ' using "' + index + '"' : ''} — ${stages.join(' → ')}`;
+      explainIndexes.textContent = res.indexes
+        .map((i) => `${i.name}: ${JSON.stringify(i.key)}${i.unique ? ' (unique)' : ''}`).join('\n');
+      explainPlan.textContent = JSON.stringify(winning || res.plan, null, 2);
+    } catch (e) {
+      explainSummary.className = 'explain-warn';
+      explainSummary.textContent = e.message;
+    }
+  }
 
   document.getElementById('code-copy').addEventListener('click', () =>
     navigator.clipboard.writeText(codeEl.textContent));
@@ -781,12 +1143,28 @@
   document.getElementById('grid-refresh').addEventListener('click', () => { g.needCount = true; load(); });
   document.getElementById('grid-insert').addEventListener('click', insertDoc);
 
-  document.getElementById('grid-viewsel').value = g.view;
+  const expandBtn = document.getElementById('grid-expand');
+  expandBtn.addEventListener('click', () => {
+    const collapsed = rootRows.filter((r) => !r.tr._children);
+    const targets = collapsed.length ? collapsed : rootRows;
+    targets.forEach((r) => r.toggle());
+    expandBtn.textContent = collapsed.length ? '⊟ Collapse all' : '⊞ Expand all';
+  });
+
+  const viewSel = document.getElementById('grid-viewsel');
+  viewSel.value = g.view;
   document.getElementById('grid-pagesize').value = String(g.pageSize);
 
-  document.getElementById('grid-viewsel').addEventListener('change', (e) => {
+  function syncView() {
+    expandBtn.hidden = g.view !== 'tree';
+    expandBtn.textContent = '⊞ Expand all';
+  }
+  syncView();
+
+  viewSel.addEventListener('change', (e) => {
     g.view = e.target.value;
     localStorage.setItem('mangodesk.view', g.view);
+    syncView();
     render();
   });
 
@@ -804,18 +1182,102 @@
     load();
   });
 
+  /* ---- context menu ---- */
+
+  // Flat text for a cell: the same unwrapping renderCell does, without truncation,
+  // so "Copy value" yields the hex id / raw string rather than its EJSON wrapper.
+  function plainValue(v) {
+    if (v === undefined) return '';
+    if (v === null) return 'null';
+    if (typeof v !== 'object') return String(v);
+    const w = WRAPPERS.find((k) => v[k] !== undefined);
+    if (w) return String(v[w]);
+    if (v.$date !== undefined) return fmtDate(v.$date);
+    return JSON.stringify(v, null, 2);
+  }
+
+  const copy = (text) => navigator.clipboard.writeText(text)
+    .then(() => App.toast('Copied'), (e) => App.toast(e.message, true));
+
+  let ctxMenu = null;
+  const closeCtx = () => { if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; } };
+  document.addEventListener('click', closeCtx);
+  window.addEventListener('blur', closeCtx);
+
+  body.addEventListener('contextmenu', (e) => {
+    const cell = e.target.closest('td, .json-doc');
+    const row = cell && cell.closest('tr');
+    const doc = (row && row._doc) || (cell && cell._doc);
+    if (!doc) return; // header or empty space — leave the browser menu alone
+    const path = (cell && cell._path) || (row && row._path);
+    e.preventDefault();
+    closeCtx();
+
+    const items = [];
+    if (path) {
+      items.push(['Copy value', () => copy(plainValue(getPathVal(doc, path)))]);
+      items.push(['Copy field name', () => copy(path)]);
+    }
+    items.push(['Copy document JSON', () => copy(JSON.stringify(doc, null, 2))]);
+    items.push(null);
+    items.push(['Edit document…', () => editDoc(doc)]);
+    items.push(['Delete document…', () => deleteDoc(doc)]);
+
+    ctxMenu = document.createElement('div');
+    ctxMenu.className = 'ctx-menu';
+    for (const item of items) {
+      if (!item) { ctxMenu.appendChild(document.createElement('hr')); continue; }
+      const [label, fn] = item;
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.addEventListener('click', fn);
+      ctxMenu.appendChild(b);
+    }
+    ctxMenu.style.left = e.clientX + 'px';
+    ctxMenu.style.top = e.clientY + 'px';
+    document.body.appendChild(ctxMenu);
+    // keep it on screen when the click lands near the right/bottom edge
+    const r = ctxMenu.getBoundingClientRect();
+    if (r.right > innerWidth) ctxMenu.style.left = Math.max(0, innerWidth - r.width - 4) + 'px';
+    if (r.bottom > innerHeight) ctxMenu.style.top = Math.max(0, innerHeight - r.height - 4) + 'px';
+  });
+
+  /* ---- keyboard shortcuts ---- */
+
+  runBtn.title = 'Run query (Ctrl+Enter)';
+  prevBtn.title = 'Previous page (Alt+←)';
+  nextBtn.title = 'Next page (Alt+→)';
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeCtx();
+    // dialogs own the keyboard while they are open (Esc, Ctrl+Enter to save)
+    if (document.querySelector('dialog[open]')) return;
+    if (!document.getElementById('tab-data').classList.contains('active')) return;
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key === 'Enter') { e.preventDefault(); run(); return; }
+    if (mod && e.key.toLowerCase() === 'f') {
+      e.preventDefault();
+      filterInput.focus();
+      filterInput.select();
+      return;
+    }
+    if (!e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (e.key === 'ArrowLeft' && !prevBtn.disabled) { e.preventDefault(); prevBtn.click(); }
+    else if (e.key === 'ArrowRight' && !nextBtn.disabled) { e.preventDefault(); nextBtn.click(); }
+  });
+
   /* ---- events ---- */
 
   App.on('target', () => {
-    g.filter = g.sort = g.projection = '';
-    g.userSkip = g.userLimit = 0;
-    filterInput.value = projInput.value = sortInput.value = '';
-    skipInput.value = limitInput.value = '';
-    g.sortField = null;
-    g.page = 0;
-    g.needCount = true;
+    const saved = App.memGet('query') || {};
+    filterInput.value = saved.filter || '';
+    projInput.value = saved.projection || '';
+    sortInput.value = saved.sort || '';
+    skipInput.value = saved.skip || '';
+    limitInput.value = saved.limit || '';
+    autoGrow();
     errBox.textContent = '';
-    load();
+    run(); // parses the restored text and loads the first page
   });
 
   App.on('query', ({ filter, sort, projection }) => {

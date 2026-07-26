@@ -237,8 +237,40 @@
   });
 
   // --- connection tree ---
+  const filterInput = el('input', 'conn-filter');
+  filterInput.type = 'search';
+  filterInput.placeholder = 'Filter databases and collections…';
+  filterInput.addEventListener('input', applyFilter);
+
   const listEl = el('div', 'conn-list');
-  panel.append(header, listEl);
+  panel.append(header, filterInput, listEl);
+
+  // Substring filter over whatever the tree has already rendered. A database stays
+  // visible when its own name matches, so unexpanded databases are still findable.
+  function applyFilter() {
+    const q = filterInput.value.trim().toLowerCase();
+    const match = (node, sel) => (node.querySelector(sel)?.textContent || '').toLowerCase().includes(q);
+    listEl.querySelectorAll('.conn-node').forEach((connNode) => {
+      let connHit = !q || match(connNode, '.conn-name');
+      connNode.querySelectorAll('.tree-db').forEach((dbNode) => {
+        const dbHit = !q || match(dbNode, '.tree-db-head');
+        let collHit = false;
+        dbNode.querySelectorAll('.tree-coll').forEach((row) => {
+          const name = row.querySelector('.tree-coll-name');
+          if (!name) return; // hint row ("loading…", errors) — always keep
+          const hit = !q || name.textContent.toLowerCase().includes(q);
+          row.hidden = !hit;
+          collHit = collHit || hit;
+        });
+        dbNode.hidden = !(dbHit || collHit);
+        connHit = connHit || dbHit || collHit;
+      });
+      connNode.hidden = !connHit;
+    });
+  }
+  // Databases and collections arrive asynchronously — re-filter whenever rows appear.
+  // childList only: our own `hidden` toggles are attribute changes, so this can't loop.
+  new MutationObserver(applyFilter).observe(listEl, { childList: true, subtree: true });
 
   function hostOf(rec) {
     try { return new URL(rec.uri).host; } catch { return ''; }
@@ -278,7 +310,7 @@
     refreshBtn.title = 'Reload databases';
     const editBtn = mkAction('Edit', () => openForm(rec.id));
     const delBtn = mkAction('Del', async () => {
-      if (!confirm('Delete connection "' + rec.name + '"?')) return;
+      if (!await App.confirm('Delete connection "' + rec.name + '"?')) return;
       await App.api('/api/connections/' + rec.id, { method: 'DELETE' });
       if (selectedId === rec.id) selectedId = null;
       expanded.delete(rec.id);
@@ -330,7 +362,7 @@
     b.type = 'button';
     b.addEventListener('click', async (e) => {
       e.stopPropagation(); // don't select the item
-      try { await fn(); } catch (err) { alert(err.message); }
+      try { await fn(); } catch (err) { App.toast(err.message, true); }
     });
     return b;
   }
@@ -364,7 +396,7 @@
 
   // Startup: reopen the last collection if it's still valid, otherwise show the picker.
   reload(false)
-    .catch((e) => alert('Failed to load connections: ' + e.message))
+    .catch((e) => App.toast('Failed to load connections: ' + e.message, true))
     .then(() => {
       let last = null;
       try { last = JSON.parse(localStorage.getItem('lastTarget')); } catch { /* ignore */ }

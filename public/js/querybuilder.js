@@ -159,8 +159,7 @@
   const p = section('Projection');
   const projZone = el('div', 'qb-strip');
   p.sec.appendChild(projZone);
-  const projWarn = el('div', 'qb-hint');
-  projWarn.style.color = '#e5534b';
+  const projWarn = el('div', 'qb-hint qb-warn');
   p.sec.appendChild(projWarn);
 
   // Sort section
@@ -366,6 +365,8 @@
   }
 
   function update() {
+    // update() runs after every edit, so it doubles as the autosave point
+    if (App.state.collection) App.memSet('qb', { groups, topOp, sortItems, projItems });
     preview.textContent = JSON.stringify(buildFilter(), null, 2);
     // MongoDB rejects projections mixing include and exclude (except _id)
     const inc = projItems.some((x) => x.mode === 1);
@@ -466,8 +467,13 @@
   });
 
   App.on('target', () => {
-    // new collection — old field paths are meaningless, start clean
-    groups = []; sortItems = []; projItems = [];
+    // field paths belong to the collection, so the builder is restored per collection
+    const s = App.memGet('qb') || {};
+    groups = s.groups || [];
+    topOp = s.topOp || '$and';
+    sortItems = s.sortItems || [];
+    projItems = s.projItems || [];
+    topOpSel.value = topOp;
     renderGroups(); renderSort(); renderProj(); update();
   });
 

@@ -45,6 +45,28 @@ router.post('/api/query', wrap(async (req, res) => {
   res.json({ docs: docs.map((d) => EJSON.serialize(d, { relaxed: false })), total });
 }));
 
+router.post('/api/explain', wrap(async (req, res) => {
+  const { connectionId, db, collection, filter, sort, projection } = req.body;
+  const client = await getClient(connectionId);
+  const coll = client.db(db).collection(collection);
+  const [plan, indexes] = await Promise.all([
+    coll.find(parseEJSON(filter, {}), { projection: parseEJSON(projection, undefined) })
+      .sort(parseEJSON(sort, {})).explain('queryPlanner'),
+    coll.indexes(),
+  ]);
+  res.json({ plan: EJSON.serialize(plan, { relaxed: true }), indexes });
+}));
+
+router.post('/api/docs/delete', wrap(async (req, res) => {
+  const { connectionId, db, collection, ids } = req.body;
+  if (!Array.isArray(ids) || !ids.length) throw bad('ids is required');
+  const client = await getClient(connectionId);
+  const parsed = ids.map((id) => EJSON.parse(id));
+  const { deletedCount } = await client.db(db).collection(collection)
+    .deleteMany({ _id: { $in: parsed } });
+  res.json({ ok: true, deletedCount });
+}));
+
 router.post('/api/doc', wrap(async (req, res) => {
   const { connectionId, db, collection, doc } = req.body;
   const parsed = EJSON.parse(doc);

@@ -49,5 +49,14 @@
 
 .export-controls select { flex: 1; }
 .export-limit { width: 110px; }
+.export-excel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.export-excel[hidden] { display: none; }
 
 .export-error { color: var(--danger); }

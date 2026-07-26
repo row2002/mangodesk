@@ -59,10 +59,34 @@
   color: var(--text-dim);
 }
 
+.qbar-row { align-items: flex-start; }
+.qbar-row label { padding-top: 6px; }
 .qbar-row input { flex: 1; min-width: 0; font-size: 12px; }
 .qbar-row .qbar-num { flex: 0 0 130px; }
 .qbar-spacer { flex: 1; }
-#q-run { flex: none; white-space: nowrap; }
+#q-run, #q-history-btn { flex: none; white-space: nowrap; }
+#q-history-btn { padding: 5px 8px; line-height: 1.15; }
+
+#q-filter {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  resize: vertical;
+  overflow-y: auto;
+  min-height: 30px;
+}
+
+.q-history-menu {
+  max-width: 420px;
+  max-height: 340px;
+  overflow: auto;
+}
+.q-history-menu button {
+  font-size: 12px;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* ---------- Result / Query Code tabs ---------- */
 
@@ -93,8 +117,22 @@
 #rtab-result { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 #rtab-result[hidden] { display: none; }
 
-#rtab-code { flex: 1; overflow: auto; padding: 10px; }
-#rtab-code[hidden] { display: none; }
+#rtab-code, #rtab-explain { flex: 1; overflow: auto; padding: 10px; }
+#rtab-code[hidden], #rtab-explain[hidden] { display: none; }
+
+#rtab-explain .panel-title { padding: 10px 0 4px; }
+#rtab-explain pre {
+  margin: 0;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+#explain-summary { padding: 8px 10px; border-radius: var(--radius); background: var(--panel); }
+.explain-warn { color: var(--danger); }
+.explain-ok { color: var(--ok); }
 
 #query-code {
   margin: 0 0 8px;
@@ -157,7 +195,6 @@
   padding: 6px 10px;
   border-bottom: 1px solid var(--border);
   cursor: pointer;
-  user-select: none;
   white-space: nowrap;
 }
 .data-table th:hover { color: var(--accent); }
@@ -185,22 +222,34 @@
 
 .data-table tbody tr:hover td { background: var(--panel); }
 
+#grid-body.busy { opacity: 0.45; pointer-events: none; }
+
 .cell-oid { color: var(--accent); }
 .cell-date { color: var(--ok); }
 
-.row-actions { text-align: right; }
+.row-actions { text-align: right; white-space: nowrap; }
 .row-actions button {
   padding: 1px 8px;
   font-size: 11px;
   margin-left: 4px;
 }
+.row-check { vertical-align: middle; margin: 0 2px 0 0; }
+
+#grid-selall-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+#sel-info { white-space: nowrap; }
 
 /* ---------- Tree view ---------- */
 
 .tree-table th.th-actions { cursor: default; }
 .tree-table th.th-actions:hover { color: inherit; }
 
-.tree-key { user-select: none; white-space: nowrap; }
+.tree-key { white-space: nowrap; }
 .tree-key .tree-arrow { display: inline-block; width: 14px; }
 .tree-key.expandable { cursor: pointer; }
 .tree-key.expandable:hover { color: var(--accent); }
@@ -244,19 +293,16 @@ td .cell-edit {
 /* ---------- Modal ---------- */
 
 #doc-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.55);
-}
-#doc-modal[hidden] { display: none; }
-
-.modal-box {
   width: 640px;
   max-width: 92vw;
+  padding: 0;
+  color: var(--text);
+  background: transparent;
+  border: none;
+}
+#doc-modal::backdrop { background: rgba(0, 0, 0, 0.55); }
+
+.modal-box {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -287,6 +333,8 @@ td .cell-edit {
 
 .modal-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
 }
+.modal-hint { margin-right: auto; font-size: 11px; }

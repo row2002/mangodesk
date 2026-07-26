@@ -238,5 +238,6 @@
 }
 
 .qb-hint { font-size: 12px; padding: 4px; }
+.qb-warn { color: var(--danger); }
 
 .drop-hl { border-color: var(--accent) !important; background: rgba(245, 166, 35, 0.06); }

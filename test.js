@@ -1,6 +1,6 @@
 // Smoke test for the pure CSV helpers. Run: npm test
 const assert = require('assert');
-const { ObjectId } = require('mongodb');
+const { ObjectId, Decimal128, Long, Double, Int32, Binary, Timestamp } = require('mongodb');
 const { csvEscape, csvValue, dig } = require('./routes/export');
 
 // csvEscape
@@ -8,6 +8,9 @@ assert.strictEqual(csvEscape('plain'), 'plain');
 assert.strictEqual(csvEscape('a,b'), '"a,b"');
 assert.strictEqual(csvEscape('line\nbreak'), '"line\nbreak"');
 assert.strictEqual(csvEscape('he said "hi"'), '"he said ""hi"""');
+// Excel mode: ';' separates, so ';' must be quoted and a bare ',' must not
+assert.strictEqual(csvEscape('a;b', ';'), '"a;b"');
+assert.strictEqual(csvEscape('a,b', ';'), 'a,b');
 
 // csvValue
 assert.strictEqual(csvValue(null), '');
@@ -24,6 +27,20 @@ assert.strictEqual(csvValue('+1'), "'+1");
 assert.strictEqual(csvValue('-x'), "'-x");
 assert.strictEqual(csvValue('@import'), "'@import");
 assert.strictEqual(csvValue('safe'), 'safe');
+
+// BSON scalars render as plain values, not extended-JSON wrappers
+assert.strictEqual(csvValue(Decimal128.fromString('12.34')), '12.34');
+assert.strictEqual(csvValue(Long.fromBigInt(9007199254740993n)), '9007199254740993');
+assert.strictEqual(csvValue(new Double(1.5)), '1.5');
+assert.strictEqual(csvValue(new Int32(3)), '3');
+assert.strictEqual(csvValue(new Binary(Buffer.from('hi'))), 'aGk=');
+assert.strictEqual(csvValue(new Timestamp({ t: 1700000000, i: 3 })), '1700000000.3');
+// …and inside nested documents too
+assert.strictEqual(
+  csvValue({ price: Decimal128.fromString('12.34'), at: new Date(0), id: new ObjectId('0123456789abcdef01234567') }),
+  '{"price":"12.34","at":"1970-01-01T00:00:00.000Z","id":"0123456789abcdef01234567"}',
+);
+assert.strictEqual(csvValue([Decimal128.fromString('1.5'), 2]), '["1.5",2]');
 
 // dig — dotted CSV header keys
 assert.strictEqual(dig({ a: { b: 7 } }, 'a.b'), 7);
