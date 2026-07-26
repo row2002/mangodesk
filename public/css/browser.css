@@ -210,6 +210,9 @@
   z-index: 2;
 }
 .col-resizer:hover { background: var(--accent-dim); }
+/* the last grip would otherwise overhang the table and add 3px of scrollable
+   width, giving the grid a horizontal scrollbar even when everything fits */
+.data-table th:last-child .col-resizer { right: 0; }
 
 .data-table td {
   padding: 4px 10px;
