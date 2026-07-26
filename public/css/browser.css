@@ -249,6 +249,11 @@
 .tree-table th.th-actions { cursor: default; }
 .tree-table th.th-actions:hover { color: inherit; }
 
+/* Chrome's UA stylesheet pairs draggable=true with user-select:none, which killed
+   selection in every draggable cell — tree rows and table cells alike. -webkit-user-drag
+   stays untouched, so dragging fields into the Query Builder still works. */
+#grid-body [draggable="true"] { user-select: text; }
+
 .tree-key { white-space: nowrap; }
 .tree-key .tree-arrow { display: inline-block; width: 14px; }
 .tree-key.expandable { cursor: pointer; }
