@@ -9,6 +9,25 @@ Build a filter without writing JSON — condition, sort, Run:
 
 ![Query Builder — add a condition and a sort, then run it](docs/querybuilder.gif)
 
+## Why not Compass?
+
+Compass is free, official and good. Reach for MangoDesk when one of these
+matters:
+
+- **A visual query builder.** Compass has no drag-and-drop condition builder —
+  you write the filter as JSON, or ask its AI to write it for you. MangoDesk
+  gives you AND/OR groups, type-aware operators and drag-to-sort strips, the
+  Studio 3T idea, and shows the filter it produces so you can copy it out.
+- **Nothing to install.** `npx mangodesk` is a 40 KB package that opens in the
+  browser you already have. Compass is a 169 MB Electron download per machine.
+  On a jump host, MangoDesk is one SSH tunnel away; a desktop app isn't.
+- **A licence you can actually fork.** MangoDesk is MIT. Compass is source
+  available under the SSPL.
+
+**Use Compass instead** if you need the aggregation pipeline builder, schema
+analysis, embedded `mongosh`, Atlas integration or AI-generated queries.
+MangoDesk has none of those and isn't trying to.
+
 ## Run
 
 ```
