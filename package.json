@@ -1,10 +1,14 @@
 {
   "name": "mangodesk",
   "version": "0.1.0",
-  "private": true,
   "description": "Free Studio 3T-style MongoDB GUI: connections, data browser, drag&drop query builder, export",
+  "keywords": ["mongodb", "mongodb-gui", "mongodb-client", "database-gui", "nosql", "studio3t", "gui"],
   "license": "MIT",
   "repository": "github:row2002/mangodesk",
+  "homepage": "https://github.com/row2002/mangodesk#readme",
+  "bin": { "mangodesk": "server.js" },
+  "files": ["server.js", "lib", "routes", "public", "LICENSE", "README.md"],
+  "engines": { "node": ">=18" },
   "scripts": {
     "start": "node server.js",
     "test": "node test.js"

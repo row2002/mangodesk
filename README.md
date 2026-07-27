@@ -5,7 +5,17 @@ Free Studio 3T-style MongoDB GUI. Local web app: Node + Express + the official
 
 ![MangoDesk — data browser with query builder](docs/screenshot.png)
 
+Build a filter without writing JSON — condition, sort, Run:
+
+![Query Builder — add a condition and a sort, then run it](docs/querybuilder.gif)
+
 ## Run
+
+```
+npx mangodesk
+```
+
+or from a clone:
 
 ```
 npm install
@@ -19,7 +29,8 @@ Open http://localhost:27080 (override with `PORT`). The server listens on
 
 - **Connections** — startup connection picker; settings form (host, port,
   user/password, auth DB, TLS, extra options) or a raw connection string, with
-  test-before-save. Stored in `connections.json` next to the app (plaintext — local tool).
+  test-before-save. Stored in `~/.mangodesk.json`, or in `connections.json` next to
+  the app if that file already exists (plaintext — local tool).
 - **Data browser** — sidebar with a connection → databases → collections tree
   (document counts) and a filter box; Table / Tree / JSON views; pagination,
   column-click sorting, resizable columns and panels; insert / edit / delete
