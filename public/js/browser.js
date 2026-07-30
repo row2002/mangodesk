@@ -528,7 +528,9 @@
       else if (e.key === 'Escape') finish(false);
     });
     if (saveOnChange) inp.addEventListener('change', () => finish(true));
-    inp.addEventListener('blur', () => finish(false));
+    // Clicking away commits, like every other grid — discarding a typed edit silently
+    // just looks like the editor is broken. Escape is the way out without saving.
+    inp.addEventListener('blur', () => finish(true));
     td.appendChild(inp);
     inp.focus();
     if (inp.select) inp.select();
