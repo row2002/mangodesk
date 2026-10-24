@@ -37,7 +37,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
 
@@ -46,7 +46,7 @@ jobs:
           node -e "process.exit(require('./package.json').scripts['build:sea'] ? 0 : 1)" \
             || { echo "::error::$TAG predates standalone builds (needs v0.2.0+)"; exit 1; }
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -92,7 +92,7 @@ jobs:
           ls -l
           echo "file=pkg/$name.${{ matrix.archive }}" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mangodesk-${{ matrix.target }}
           path: ${{ steps.pkg.outputs.file }}
@@ -105,11 +105,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: out
           pattern: mangodesk-*
@@ -174,8 +174,8 @@ jobs:
       contents: read
       id-token: write   # npm provenance
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org

@@ -7,6 +7,15 @@ for a tag (`## [X.Y.Z] - date`) into the GitHub release notes.
 
 ## [Unreleased]
 
+### Changed
+- Node 22 is now the minimum (`engines`), and CI tests on 22, 24 and 26. Node 18 and
+  20 are both past end-of-life, and the MongoDB driver needs 20.19 or newer.
+
+### Fixed
+- A POST without a JSON `Content-Type` answers 404/400 again instead of 500. Under
+  express 5 the body parser leaves `req.body` unset rather than empty, which the
+  routes read straight through.
+
 ## [0.2.0] - 2026-10-24
 
 ### Added
