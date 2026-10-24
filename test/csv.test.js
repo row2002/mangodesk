@@ -1,7 +1,7 @@
 // Smoke test for the pure CSV helpers. Run: npm test
 const assert = require('assert');
 const { ObjectId, Decimal128, Long, Double, Int32, Binary, Timestamp } = require('mongodb');
-const { csvEscape, csvValue, dig } = require('./routes/export');
+const { csvEscape, csvValue, dig } = require('../routes/export');
 
 // csvEscape
 assert.strictEqual(csvEscape('plain'), 'plain');

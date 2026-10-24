@@ -30,7 +30,7 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node test.js",
+    "test": "node --test",
     "build:sea": "node scripts/build-sea.js"
   },
   "dependencies": {
