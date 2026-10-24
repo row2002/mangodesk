@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [20, 22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  # the same suite again, with the tests that need a real server switched on
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      MANGODESK_TEST_MONGO: mongodb://127.0.0.1:27017
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  # standalone executable: same build and smoke test as release.yml, Linux only
+  sea:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: npm ci
+      - run: npm run build:sea
+      - name: Smoke test the binary
+        env:
+          PORT: '27181'
+          MANGODESK_CONFIG: ${{ runner.temp }}/smoke-connections.json
+        run: |
+          ./dist/mangodesk --no-open > smoke.log 2>&1 &
+          pid=$!
+          for i in $(seq 1 50); do curl -fs -o /dev/null http://127.0.0.1:$PORT/ && break; sleep 0.2; done
+          curl -fsS http://127.0.0.1:$PORT/ | grep -q '<title>MangoDesk</title>'
+          curl -fsS -o /dev/null http://127.0.0.1:$PORT/app.js
+          curl -fsS -o /dev/null http://127.0.0.1:$PORT/css/browser.css
+          curl -fsS http://127.0.0.1:$PORT/api/connections
+          curl -fsS http://127.0.0.1:$PORT/api/version | grep -q "\"version\":\"$(node -p 'require("./package.json").version')\""
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example' http://127.0.0.1:$PORT/api/connections)" = 403
+          ./dist/mangodesk --no-open | grep -q 'already running'
+          ./dist/mangodesk --version
+          kill $pid
+          cat smoke.log
+          grep -q "running at http://localhost:$PORT" smoke.log
+          if grep -qi 'ExperimentalWarning' smoke.log; then echo 'SEA warning not suppressed'; exit 1; fi

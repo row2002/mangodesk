@@ -1,0 +1,75 @@
+name: Bug report
+description: Something in MangoDesk doesn't work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Redact passwords and hostnames** from connection strings,
+        logs and screenshots before posting. Security problems: please don't file them
+        here — see SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: MangoDesk version
+      description: Shown next to the logo in the top bar, or run `mangodesk --version`.
+      placeholder: 0.2.0
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run it?
+      options:
+        - Release binary (downloaded archive)
+        - npx github:row2002/mangodesk
+        - From source (git clone + npm start)
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows x64
+        - macOS Apple Silicon
+        - macOS Intel
+        - Linux x64
+        - Linux arm64
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version, browser, and Node.js version (if not using the binary)
+      placeholder: Windows 11 23H2, Chrome 130 / Ubuntu 24.04, Firefox 131, Node 22.11
+  - type: input
+    id: mongo
+    attributes:
+      label: MongoDB version and deployment
+      description: Standalone, replica set, sharded cluster, Atlas, DocumentDB, …
+      placeholder: 7.0.14, replica set
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Connect to …
+        2. Open collection …
+        3. Click …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output
+      description: Anything printed in the terminal window, and errors from the browser console (F12). Redact credentials.
+      render: text
