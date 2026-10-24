@@ -72,7 +72,7 @@ The binaries are not code-signed, so the first launch needs one extra step:
 
 ### With Node.js
 
-Node 18 or newer:
+Node 22 or newer:
 
 ```
 npx github:row2002/mangodesk
@@ -246,7 +246,7 @@ npm run build:sea        # -> dist/mangodesk (dist/mangodesk.exe on Windows)
 Uses Node's [single executable applications](https://nodejs.org/api/single-executable-applications.html):
 the server is bundled with esbuild, `public/` is embedded as assets, and the result is
 a copy of the `node` that ran the build — so build on each target OS/arch, with the
-Node version you want to ship (20.12 or newer; releases use Node 24). On macOS the
+Node version you want to ship (22 or newer; releases use Node 24). On macOS the
 binary is ad-hoc signed with `codesign`.
 
 ## Releasing
@@ -272,7 +272,7 @@ MANGODESK_TEST_MONGO=mongodb://127.0.0.1:27017 npm test   # plus the integration
 Unit tests cover the CLI, the connections store, the Host/Origin guard, EJSON round
 trips, the mongosh printer/parser and the CSV helpers; the integration tests run the
 API against a real MongoDB and are skipped when `MANGODESK_TEST_MONGO` is unset. CI
-runs them on Linux, macOS and Windows with Node 20, 22 and 24, plus a build and smoke
+runs them on Linux, macOS and Windows with Node 22, 24 and 26, plus a build and smoke
 test of the Linux binary.
 
 ## License
