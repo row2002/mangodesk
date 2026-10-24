@@ -3,3 +3,4 @@ connections.json
 .claude/
 start-mangodesk.vbs
 dist/
+connections.json.tmp-*

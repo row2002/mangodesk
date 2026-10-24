@@ -1,6 +1,6 @@
 {
   "name": "mangodesk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Free Studio 3T-style MongoDB GUI: connections, data browser, drag&drop query builder, export",
   "keywords": [
     "mongodb",
@@ -34,7 +34,7 @@
     "build:sea": "node scripts/build-sea.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
+    "express": "^4.22.3",
     "mongodb": "^6.8.0"
   },
   "devDependencies": {

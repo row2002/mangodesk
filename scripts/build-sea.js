@@ -16,6 +16,13 @@ const exe = path.join(dist, win ? 'mangodesk.exe' : 'mangodesk');
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: 'inherit' });
 
 async function main() {
+  // Node 18.16-20.11 build a SEA without node:sea assets: public/ wouldn't be embedded
+  let sea = null;
+  try { sea = require('node:sea'); } catch { /* older Node */ }
+  if (!sea || typeof sea.getAsset !== 'function') {
+    console.error(`build:sea needs Node >= 20.12 (node:sea assets); this is ${process.version}`);
+    process.exit(1);
+  }
   fs.rmSync(dist, { recursive: true, force: true });
   fs.mkdirSync(dist);
 
