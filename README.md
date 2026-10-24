@@ -8,7 +8,7 @@ Free Studio 3T-style MongoDB GUI. Local web app: Node + Express + the official
 `mongodb` driver, vanilla-JS frontend, no build step.
 
 **[Download for Windows / macOS / Linux](https://github.com/row2002/mangodesk/releases/latest)**
-· or `npx github:row2002/mangodesk`
+· or `npx mangodesk`
 
 ![MangoDesk — data browser with query builder](docs/screenshot.png)
 
@@ -46,11 +46,11 @@ start `mangodesk` (`mangodesk.exe` on Windows). No Node.js needed.
 
 | System | File |
 |---|---|
-| Windows 10/11, x64 | `mangodesk-v0.2.0-win-x64.zip` |
-| macOS, Apple Silicon | `mangodesk-v0.2.0-macos-arm64.tar.gz` |
-| macOS, Intel | `mangodesk-v0.2.0-macos-x64.tar.gz` |
-| Linux, x64 | `mangodesk-v0.2.0-linux-x64.tar.gz` |
-| Linux, arm64 | `mangodesk-v0.2.0-linux-arm64.tar.gz` |
+| Windows 10/11, x64 | `mangodesk-v0.3.0-win-x64.zip` |
+| macOS, Apple Silicon | `mangodesk-v0.3.0-macos-arm64.tar.gz` |
+| macOS, Intel | `mangodesk-v0.3.0-macos-x64.tar.gz` |
+| Linux, x64 | `mangodesk-v0.3.0-linux-x64.tar.gz` |
+| Linux, arm64 | `mangodesk-v0.3.0-linux-arm64.tar.gz` |
 
 It opens http://localhost:27080 in your default browser. The terminal window *is*
 the server: keep it open while you work; Ctrl+C (or closing the window) stops
@@ -75,12 +75,11 @@ The binaries are not code-signed, so the first launch needs one extra step:
 Node 22 or newer:
 
 ```
-npx github:row2002/mangodesk
+npx mangodesk
 ```
 
-This installs straight from GitHub (the `mangodesk` name on npm is not
-published). It runs the current `main`; pin a release with
-`npx github:row2002/mangodesk#v0.2.0`.
+This runs the latest release from npm (`npx mangodesk@0.3.0` pins one). The
+current `main` straight from GitHub: `npx github:row2002/mangodesk`.
 
 ### From source
 
@@ -215,8 +214,8 @@ Found a vulnerability? See [SECURITY.md](SECURITY.md).
 
 - **Binary** — download the new archive and replace the old `mangodesk`. In portable
   mode, move your `connections.json` next to the new one.
-- **npx** — `npx github:row2002/mangodesk` picks up the latest `main`; with a pinned
-  tag, change the tag.
+- **npx** — `npx mangodesk@latest` fetches the newest release (plain `npx mangodesk`
+  may reuse a cached one); with a pinned version, change the version.
 - **Clone** — `git pull && npm install`.
 
 Connections live outside the app (see above) and are kept.
