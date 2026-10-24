@@ -7,6 +7,12 @@ for a tag (`## [X.Y.Z] - date`) into the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-25
+
+### Added
+- Published on npm: `npx mangodesk` runs the latest release, `npx mangodesk@0.3.0`
+  pins one.
+
 ### Changed
 - Node 22 is now the minimum (`engines`), and CI tests on 22, 24 and 26. Node 18 and
   20 are both past end-of-life, and the MongoDB driver needs 20.19 or newer.
@@ -101,6 +107,7 @@ First public release.
 - Export as JSON, NDJSON or CSV (with an Excel mode).
 - Light and dark themes, keyboard shortcuts.
 
-[Unreleased]: https://github.com/row2002/mangodesk/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/row2002/mangodesk/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/row2002/mangodesk/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/row2002/mangodesk/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/row2002/mangodesk/releases/tag/v0.1.0
