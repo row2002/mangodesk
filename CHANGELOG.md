@@ -10,6 +10,12 @@ for a tag (`## [X.Y.Z] - date`) into the GitHub release notes.
 ### Changed
 - Node 22 is now the minimum (`engines`), and CI tests on 22, 24 and 26. Node 18 and
   20 are both past end-of-life, and the MongoDB driver needs 20.19 or newer.
+- express 4.22.3 → 5.3.0. The only behaviour the app exposed was the unset `req.body`
+  noted under Fixed; the export download builds its own `Content-Disposition`, so the
+  quoting change in express 5 does not reach it.
+- MongoDB driver 6.21.0 → 7.7.0 (bson 7). Reads, writes and exports keep their exact
+  BSON types as before — `promoteValues` moved to bson's deserialize options but is
+  still honoured. This driver is what raises the Node floor to 20.19.
 
 ### Fixed
 - A POST without a JSON `Content-Type` answers 404/400 again instead of 500. Under
