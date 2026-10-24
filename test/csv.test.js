@@ -41,6 +41,17 @@ assert.strictEqual(
   '{"price":"12.34","at":"1970-01-01T00:00:00.000Z","id":"0123456789abcdef01234567"}',
 );
 assert.strictEqual(csvValue([Decimal128.fromString('1.5'), 2]), '["1.5",2]');
+// Exports read with promoteValues:false, so numbers arrive as Int32/Long/Double objects:
+// a whole Double prints like a spreadsheet shows it ('1', not '1.0'), and nested ones
+// stay JSON numbers (a Long past 2^53 becomes a string rather than rounding)
+assert.strictEqual(csvValue(new Double(1)), '1');
+assert.strictEqual(csvValue(new Double(-2)), '-2'); // no formula guard on numbers
+assert.strictEqual(csvValue(Long.fromNumber(-5)), '-5');
+assert.strictEqual(
+  csvValue({ i: new Int32(1), d: new Double(1), f: new Double(2.5), l: Long.fromNumber(5), big: Long.fromString('9007199254740993') }),
+  '{"i":1,"d":1,"f":2.5,"l":5,"big":"9007199254740993"}',
+);
+assert.strictEqual(csvValue([new Double(NaN)]), '["NaN"]');
 
 // dig — dotted CSV header keys
 assert.strictEqual(dig({ a: { b: 7 } }, 'a.b'), 7);

@@ -1,7 +1,6 @@
 const express = require('express');
-const { BSON } = require('mongodb');
-const { EJSON } = BSON;
 const { getClient } = require('../lib/clients');
+const ejson = require('../lib/ejson');
 
 const router = express.Router();
 
@@ -13,10 +12,6 @@ const CONTENT_TYPES = {
   ndjson: 'application/x-ndjson',
   csv: 'text/csv; charset=utf-8',
 };
-
-function parseEjson(str, fallback) {
-  return str && str.trim() ? EJSON.parse(str) : fallback;
-}
 
 function csvEscape(s, delim = ',') {
   if (s.includes(delim) || /["\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
@@ -36,12 +31,23 @@ function bsonScalar(v) {
   return undefined;
 }
 
+// Int32/Double/Long as a JSON number inside nested docs; NaN/Infinity and Longs past
+// 2^53 fall through to their text form.
+function bsonNumber(v) {
+  const t = v._bsontype;
+  const n = t === 'Int32' || t === 'Double' ? v.valueOf() : t === 'Long' ? v.toNumber() : undefined;
+  if (n === undefined || !Number.isFinite(n) || (t === 'Long' && !Number.isSafeInteger(n))) return undefined;
+  return n;
+}
+
 // Same unwrapping one level down, so nested docs don't leak $numberDecimal either.
 // Read the raw value off the holder: toJSON runs before the replacer, and BSON's
 // toJSON is exactly the extended-JSON form we're trying to avoid.
 function nestedReplacer(k, v) {
   const raw = this[k];
   if (raw && raw._bsontype) {
+    const n = bsonNumber(raw);
+    if (n !== undefined) return n;
     const s = bsonScalar(raw);
     if (s !== undefined) return s;
   }
@@ -91,48 +97,78 @@ function write(res, chunk) {
   });
 }
 
-router.post('/api/export', wrap(async (req, res) => {
+// Every top-level field name in the result set, in first-seen order. An expression
+// projection (MongoDB 4.4+) sends only the key names back, so this is one light extra
+// pass rather than a sample that drops columns first appearing after document 200.
+const KEYS = { _id: 0, k: { $map: { input: { $objectToArray: '$$ROOT' }, in: '$$this.k' } } };
+
+// Projection values: 0/false (also as Int32/Double wrappers) exclude a field.
+const excluded = (v) => !v || (typeof v === 'object' && v._bsontype !== undefined && Number(v) === 0);
+// {a:{$slice:n}} returns every field, like an exclusion projection
+const isSlice = (v) => v !== null && typeof v === 'object' && !v._bsontype && '$slice' in v;
+
+async function csvColumns(coll, f, s, skip, limit, p) {
+  const scan = (projection, n) => {
+    let c = coll.find(f, { projection });
+    if (s && (skip || n)) c = c.sort(s); // order only matters for which docs skip/limit pick
+    if (skip) c = c.skip(skip);
+    if (n) c = c.limit(n);
+    return c;
+  };
+  const keys = new Set();
+  try {
+    for await (const { k } of scan(KEYS, limit)) k.forEach((x) => keys.add(x));
+  } catch (err) {
+    if (err.name !== 'MongoServerError') throw err;
+    // older server: fall back to sampling (a broken filter fails here again and surfaces)
+    keys.clear();
+    for await (const doc of scan(p, limit ? Math.min(200, limit) : 200)) {
+      Object.keys(doc).forEach((x) => keys.add(x));
+    }
+  }
+  // p has no inclusions here; drop excluded columns (a dotted exclusion trims inside a
+  // column, not the column; {_id:1} and {a:{$slice:n}} keep theirs)
+  if (p) Object.keys(p).filter((x) => !x.includes('.') && excluded(p[x])).forEach((x) => keys.delete(x));
+  return [...keys];
+}
+
+router.post('/api/export', wrap(async (req, res, next) => {
   const { connectionId, db, collection, filter, sort, projection, format } = req.body;
   if (!CONTENT_TYPES[format]) throw bad('Unknown format: ' + format);
   if (!connectionId || !db || !collection) throw bad('connectionId, db and collection are required');
 
+  const f = ejson.parseDoc(filter, {}, 'Filter');
+  const s = ejson.parseDoc(sort, undefined, 'Sort');
+  const p = ejson.parseDoc(projection, undefined, 'Projection');
+  const limit = Math.max(0, parseInt(req.body.limit, 10) || 0);
+  const skip = Math.max(0, parseInt(req.body.skip, 10) || 0);
   const client = await getClient(connectionId);
   const coll = client.db(db).collection(collection);
-  const f = parseEjson(filter, {});
-  const s = parseEjson(sort, undefined);
-  const p = parseEjson(projection, undefined);
-  const limit = Number(req.body.limit) || 0;
-  const skip = Number(req.body.skip) || 0;
 
   let header = null;
   if (format === 'csv') {
-    // Included fields from projection, else sample top-level keys.
+    // Included fields from an inclusion projection, else every top-level key in the
+    // result. _id alone doesn't make one: {_id:1, a:0} still returns all but a.
     if (p) {
-      const included = Object.keys(p).filter((k) => p[k]);
-      if (included.length) {
-        header = included;
-        if (!included.includes('_id') && p._id !== 0) header.unshift('_id');
-      }
+      const included = Object.keys(p).filter((k) => k !== '_id' && !excluded(p[k]) && !isSlice(p[k]));
+      if (included.length) header = '_id' in p && excluded(p._id) ? included : ['_id', ...included];
     }
-    if (!header) {
-      // sample with the same sort/projection/limit so the header matches what's exported
-      let sample = coll.find(f);
-      if (s) sample = sample.sort(s);
-      if (p) sample = sample.project(p);
-      if (skip) sample = sample.skip(skip);
-      const keys = new Set();
-      for await (const doc of sample.limit(limit ? Math.min(200, limit) : 200)) {
-        Object.keys(doc).forEach((k) => keys.add(k));
-      }
-      header = [...keys];
-    }
+    if (!header) header = await csvColumns(coll, f, s, skip, limit, p);
   }
 
-  let cursor = coll.find(f);
+  // promoteValues:false: a Long stays a Long and 1.0 a Double in the JSON/NDJSON files
+  let cursor = coll.find(f, { promoteValues: false });
   if (s) cursor = cursor.sort(s);
   if (p) cursor = cursor.project(p);
   if (skip) cursor = cursor.skip(skip);
   if (limit) cursor = cursor.limit(limit);
+  // Fetch the first batch before any header goes out, so a bad operator, a sort over
+  // the memory limit or a missing privilege comes back as a JSON error the export
+  // panel shows, not as an attachment that dies at 0 bytes.
+  try { await cursor.hasNext(); } catch (err) {
+    await cursor.close().catch(() => {});
+    throw err;
+  }
 
   const safeName = String(collection).replace(/[^\w.-]/g, '_');
   res.setHeader('Content-Type', CONTENT_TYPES[format]);
@@ -144,13 +180,14 @@ router.post('/api/export', wrap(async (req, res) => {
       await write(res, '[\n');
       let first = true;
       for await (const doc of cursor) {
-        await write(res, (first ? '' : ',\n') + EJSON.stringify(EJSON.serialize(doc), null, 2));
+        // canonical EJSON is the lossless form; mongoimport reads it as is
+        await write(res, (first ? '' : ',\n') + ejson.stringify(doc, 2));
         first = false;
       }
       await write(res, '\n]');
     } else if (format === 'ndjson') {
       for await (const doc of cursor) {
-        await write(res, EJSON.stringify(EJSON.serialize(doc)) + '\n');
+        await write(res, ejson.stringify(doc) + '\n');
       }
     } else {
       // Excel (RU/EU locale) needs a UTF-8 BOM to not mangle Cyrillic, ';' as the
@@ -166,7 +203,13 @@ router.post('/api/export', wrap(async (req, res) => {
     }
     res.end();
   } catch (err) {
-    // Client aborted or cursor error mid-stream: headers already sent, just tear down.
+    if (!res.headersSent) {
+      res.removeHeader('Content-Disposition');
+      return next(err);
+    }
+    // Failed mid-stream (or the client went away): kill the socket so the chunked body
+    // never terminates. Browsers then mark the download failed and curl exits non-zero;
+    // an in-band error marker would leave a file that looks complete up to a batch edge.
     res.destroy();
   } finally {
     await cursor.close().catch(() => {});
