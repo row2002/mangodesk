@@ -99,6 +99,23 @@ test('form bodies are only parsed for /api/export', async () => {
   assert.strictEqual(r.status, 400);
 });
 
+test('a POST that no body parser matched is still a clean 4xx', async () => {
+  // express 5 leaves req.body unset when the Content-Type matches no parser; the routes
+  // destructure it, which turned these into 500s leaking the TypeError text.
+  const cases = [
+    ['/api/query', undefined], ['/api/query', 'text/plain'],
+    ['/api/doc', 'text/plain'], ['/api/export', 'text/plain'],
+  ];
+  for (const [url, type] of cases) {
+    const r = await request('POST', url, {
+      headers: type ? { 'Content-Type': type } : {}, body: type ? 'not a body' : undefined,
+    });
+    const label = `${url} (${type || 'no Content-Type'}) -> ${r.status}`;
+    assert.ok(r.status >= 400 && r.status < 500, label);
+    assert.doesNotMatch(String(r.body.error), /Cannot destructure/, label);
+  }
+});
+
 test('same-origin writes work, with optional colour persisted', async () => {
   reset();
   for (const origin of [self(), `http://localhost:${port}`]) {
