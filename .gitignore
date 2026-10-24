@@ -2,3 +2,4 @@ node_modules/
 connections.json
 .claude/
 start-mangodesk.vbs
+dist/
