@@ -2,14 +2,15 @@ name: Release binaries
 
 # Push a tag like v0.2.0 -> builds standalone executables on native runners and attaches
 # them to the GitHub release for that tag (creating the release if it doesn't exist).
-# "Run workflow" with an existing tag backfills binaries for an old release (e.g. v0.1.0).
+# "Run workflow" with an existing tag re-builds and re-uploads its binaries (v0.2.0+:
+# older tags predate standalone builds).
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing tag to build and attach binaries to (e.g. v0.1.0)'
+        description: 'Existing tag (v0.2.0 or later) to re-build and re-upload binaries for'
         required: true
 
 permissions:
@@ -40,6 +41,11 @@ jobs:
         with:
           ref: ${{ env.TAG }}
 
+      - name: Check the tag supports standalone builds
+        run: |
+          node -e "process.exit(require('./package.json').scripts['build:sea'] ? 0 : 1)" \
+            || { echo "::error::$TAG predates standalone builds (needs v0.2.0+)"; exit 1; }
+
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -52,18 +58,23 @@ jobs:
       - name: Smoke test the binary
         env:
           PORT: '27181'
-          MANGODESK_NO_OPEN: '1'
           MANGODESK_CONFIG: ${{ runner.temp }}/smoke-connections.json
         run: |
-          ./dist/${{ matrix.exe }} > smoke.log 2>&1 &
+          ./dist/${{ matrix.exe }} --no-open > smoke.log 2>&1 &
           pid=$!
           for i in $(seq 1 50); do curl -fs -o /dev/null http://127.0.0.1:$PORT/ && break; sleep 0.2; done
           curl -fsS http://127.0.0.1:$PORT/ | grep -q '<title>MangoDesk</title>'
           curl -fsS -o /dev/null http://127.0.0.1:$PORT/app.js
           curl -fsS -o /dev/null http://127.0.0.1:$PORT/css/browser.css
           curl -fsS http://127.0.0.1:$PORT/api/connections
+          # version, Host guard, second launch
+          curl -fsS http://127.0.0.1:$PORT/api/version | grep -q "\"version\":\"${TAG#v}\""
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example' http://127.0.0.1:$PORT/api/connections)" = 403
+          ./dist/${{ matrix.exe }} --no-open > second.log 2>&1
+          grep -q 'already running' second.log
           kill $pid 2>/dev/null || taskkill //F //IM mangodesk.exe 2>/dev/null || true
           cat smoke.log
+          grep -q "running at http://localhost:$PORT" smoke.log
           if grep -qi 'ExperimentalWarning' smoke.log; then echo 'SEA warning not suppressed'; exit 1; fi
 
       - name: Package
@@ -94,6 +105,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+
       - uses: actions/download-artifact@v4
         with:
           path: out
@@ -104,17 +119,53 @@ jobs:
         working-directory: out
         run: sha256sum mangodesk-* > SHA256SUMS.txt && cat SHA256SUMS.txt
 
+      # CHANGELOG.md section for this tag ("## [0.2.0] - 2026-10-24") when there is one,
+      # else GitHub's generated notes; then how to get past each OS's unsigned-app prompt
+      - name: Release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          touch notes.md
+          if [ -f CHANGELOG.md ]; then
+            awk -v v="${TAG#v}" '
+              /^## \[/ { if (found) exit; if (index($0, "## [" v "]") == 1) { found = 1; next } }
+              found { print }
+            ' CHANGELOG.md > notes.md
+          fi
+          if ! grep -q '[^[:space:]]' notes.md; then
+            gh api "repos/$GH_REPO/releases/generate-notes" -f tag_name="$TAG" --jq .body > notes.md
+          fi
+          cat >> notes.md <<'EOF'
+
+          ## How to run
+
+          Download the archive for your system, unpack it and start `mangodesk`. It opens
+          MangoDesk in your browser at http://localhost:27080 (`mangodesk --help` lists the
+          options). The binaries are not code-signed, so the first launch needs one extra step:
+
+          - **macOS**: in Terminal, run `xattr -d com.apple.quarantine ./mangodesk`, then
+            `./mangodesk`. Or double-click it once, then go to System Settings > Privacy &
+            Security and click **Open Anyway**.
+          - **Windows**: if SmartScreen says "Windows protected your PC", click
+            **More info** > **Run anyway**.
+          - **Linux**: `chmod +x mangodesk && ./mangodesk` (add `--no-open` on a headless box).
+
+          Check downloads against `SHA256SUMS.txt`.
+          EOF
+          cat notes.md
+
       - name: Create release if needed and upload assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           gh release view "$TAG" > /dev/null 2>&1 \
-            || gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
+            || gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md
           gh release upload "$TAG" out/* --clobber
 
   # Optional: keeps `npx mangodesk` in sync with the binaries. Runs only when an
-  # NPM_TOKEN secret exists and the run came from a tag push (not a backfill).
+  # NPM_TOKEN secret exists and the run came from a tag push (not "Run workflow").
   npm:
     needs: build
     if: github.event_name == 'push'
