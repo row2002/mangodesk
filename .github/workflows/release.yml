@@ -1,0 +1,138 @@
+name: Release binaries
+
+# Push a tag like v0.2.0 -> builds standalone executables on native runners and attaches
+# them to the GitHub release for that tag (creating the release if it doesn't exist).
+# "Run workflow" with an existing tag backfills binaries for an old release (e.g. v0.1.0).
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and attach binaries to (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24.x'   # the Node runtime embedded in every binary; keep on an LTS line
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: linux-x64,    os: ubuntu-24.04,     exe: mangodesk,     archive: tar.gz }
+          - { target: linux-arm64,  os: ubuntu-24.04-arm, exe: mangodesk,     archive: tar.gz }
+          - { target: macos-arm64,  os: macos-15,         exe: mangodesk,     archive: tar.gz }
+          - { target: macos-x64,    os: macos-15-intel,   exe: mangodesk,     archive: tar.gz }
+          - { target: win-x64,      os: windows-2025,     exe: mangodesk.exe, archive: zip }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build:sea
+
+      - name: Smoke test the binary
+        env:
+          PORT: '27181'
+          MANGODESK_NO_OPEN: '1'
+          MANGODESK_CONFIG: ${{ runner.temp }}/smoke-connections.json
+        run: |
+          ./dist/${{ matrix.exe }} > smoke.log 2>&1 &
+          pid=$!
+          for i in $(seq 1 50); do curl -fs -o /dev/null http://127.0.0.1:$PORT/ && break; sleep 0.2; done
+          curl -fsS http://127.0.0.1:$PORT/ | grep -q '<title>MangoDesk</title>'
+          curl -fsS -o /dev/null http://127.0.0.1:$PORT/app.js
+          curl -fsS -o /dev/null http://127.0.0.1:$PORT/css/browser.css
+          curl -fsS http://127.0.0.1:$PORT/api/connections
+          kill $pid 2>/dev/null || taskkill //F //IM mangodesk.exe 2>/dev/null || true
+          cat smoke.log
+          if grep -qi 'ExperimentalWarning' smoke.log; then echo 'SEA warning not suppressed'; exit 1; fi
+
+      - name: Package
+        id: pkg
+        run: |
+          name="mangodesk-${TAG}-${{ matrix.target }}"
+          mkdir -p "pkg/$name"
+          cp "dist/${{ matrix.exe }}" README.md LICENSE "pkg/$name/"
+          cd pkg
+          if [ "${{ matrix.archive }}" = zip ]; then
+            7z a -tzip -mx=9 "$name.zip" "$name" > /dev/null
+          else
+            tar -czf "$name.tar.gz" "$name"
+          fi
+          ls -l
+          echo "file=pkg/$name.${{ matrix.archive }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mangodesk-${{ matrix.target }}
+          path: ${{ steps.pkg.outputs.file }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          pattern: mangodesk-*
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: out
+        run: sha256sum mangodesk-* > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Create release if needed and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view "$TAG" > /dev/null 2>&1 \
+            || gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
+          gh release upload "$TAG" out/* --clobber
+
+  # Optional: keeps `npx mangodesk` in sync with the binaries. Runs only when an
+  # NPM_TOKEN secret exists and the run came from a tag push (not a backfill).
+  npm:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write   # npm provenance
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://registry.npmjs.org
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then echo "NPM_TOKEN not set, skipping"; exit 0; fi
+          test "v$(node -p 'require("./package.json").version')" = "$TAG" \
+            || { echo "package.json version does not match $TAG"; exit 1; }
+          npm publish --provenance --access public
