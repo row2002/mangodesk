@@ -2,11 +2,11 @@ const express = require('express');
 const { BSON } = require('mongodb');
 const { EJSON } = BSON;
 const { getClient } = require('../lib/clients');
+const ejson = require('../lib/ejson');
 
 const router = express.Router();
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const parseEJSON = (str, fallback) => (str && str.trim() ? EJSON.parse(str) : fallback);
 const bad = (msg) => Object.assign(new Error(msg), { status: 400 });
 
 router.get('/api/connections/:id/databases', wrap(async (req, res) => {
@@ -27,31 +27,43 @@ router.get('/api/connections/:id/databases/:db/collections', wrap(async (req, re
   res.json(out);
 }));
 
+// countDocuments runs the filter inside $match, where the server rejects $near,
+// $nearSphere and $where although find() takes them. The docs are still worth
+// showing: total null tells the UI the count is unknown. A filter that is really
+// broken fails find() too, so nothing is hidden.
+const countOrNull = (coll, f) => coll.countDocuments(f).catch((err) => {
+  if (err.name === 'MongoServerError') return null;
+  throw err;
+});
+
 router.post('/api/query', wrap(async (req, res) => {
   const { connectionId, db, collection, filter, sort, projection } = req.body;
   const skip = Math.max(0, parseInt(req.body.skip, 10) || 0);
   const limit = Math.min(1000, Math.max(1, parseInt(req.body.limit, 10) || 50));
-  const f = parseEJSON(filter, {});
-  const s = parseEJSON(sort, {});
-  const p = parseEJSON(projection, undefined);
+  const f = ejson.parseDoc(filter, {}, 'Filter');
+  const s = ejson.parseDoc(sort, {}, 'Sort');
+  const p = ejson.parseDoc(projection, undefined, 'Projection');
   const client = await getClient(connectionId);
   const coll = client.db(db).collection(collection);
   const [docs, total] = await Promise.all([
-    coll.find(f, { projection: p }).sort(s).skip(skip).limit(limit).toArray(),
+    // promoteValues:false keeps Int32/Long/Double apart so the UI can send them back as they were
+    coll.find(f, { projection: p, promoteValues: false }).sort(s).skip(skip).limit(limit).toArray(),
     // count is expensive on big collections — the client asks for it once per
     // query and reuses the cached total while paginating (count: false)
-    req.body.count === false ? null : coll.countDocuments(f),
+    req.body.count === false ? null : countOrNull(coll, f),
   ]);
-  res.json({ docs: docs.map((d) => EJSON.serialize(d, { relaxed: false })), total });
+  res.json({ docs: docs.map(ejson.serialize), total });
 }));
 
 router.post('/api/explain', wrap(async (req, res) => {
   const { connectionId, db, collection, filter, sort, projection } = req.body;
+  const f = ejson.parseDoc(filter, {}, 'Filter');
+  const s = ejson.parseDoc(sort, {}, 'Sort');
+  const p = ejson.parseDoc(projection, undefined, 'Projection');
   const client = await getClient(connectionId);
   const coll = client.db(db).collection(collection);
   const [plan, indexes] = await Promise.all([
-    coll.find(parseEJSON(filter, {}), { projection: parseEJSON(projection, undefined) })
-      .sort(parseEJSON(sort, {})).explain('queryPlanner'),
+    coll.find(f, { projection: p }).sort(s).explain('queryPlanner'),
     coll.indexes(),
   ]);
   res.json({ plan: EJSON.serialize(plan, { relaxed: true }), indexes });
@@ -61,7 +73,7 @@ router.post('/api/docs/delete', wrap(async (req, res) => {
   const { connectionId, db, collection, ids } = req.body;
   if (!Array.isArray(ids) || !ids.length) throw bad('ids is required');
   const client = await getClient(connectionId);
-  const parsed = ids.map((id) => EJSON.parse(id));
+  const parsed = ids.map(ejson.parse);
   const { deletedCount } = await client.db(db).collection(collection)
     .deleteMany({ _id: { $in: parsed } });
   res.json({ ok: true, deletedCount });
@@ -69,31 +81,53 @@ router.post('/api/docs/delete', wrap(async (req, res) => {
 
 router.post('/api/doc', wrap(async (req, res) => {
   const { connectionId, db, collection, doc } = req.body;
-  const parsed = EJSON.parse(doc);
+  const parsed = ejson.parseDoc(doc, undefined, 'Document');
+  if (!parsed) throw bad('doc is required');
   const client = await getClient(connectionId);
   const { insertedId } = await client.db(db).collection(collection).insertOne(parsed);
-  res.json({ ok: true, id: EJSON.serialize(insertedId, { relaxed: false }) });
+  res.json({ ok: true, id: ejson.serialize(insertedId) });
 }));
+
+// The literal _id of one document. $eq so an operator-shaped id ({"$in":[…]}) matches
+// nothing instead of acting as a query that hits whichever document comes first.
+function byId(id) {
+  if (typeof id !== 'string' || !id) throw bad('id is required');
+  return { _id: { $eq: ejson.parse(id) } };
+}
 
 router.put('/api/doc', wrap(async (req, res) => {
   const { connectionId, db, collection, id, doc } = req.body;
-  if (!id) throw bad('id is required');
-  const parsed = EJSON.parse(doc);
+  const match = byId(id);
+  const parsed = ejson.parseDoc(doc, undefined, 'Document');
+  if (!parsed) throw bad('doc is required');
   const client = await getClient(connectionId);
   // match by the original _id, not the (possibly edited) one from the doc body —
   // otherwise editing _id could silently overwrite another document
   const result = await client.db(db).collection(collection)
-    .replaceOne({ _id: EJSON.parse(id) }, parsed);
+    .replaceOne(match, parsed);
+  if (result.matchedCount === 0) return res.status(404).json({ error: 'Document not found' });
+  res.json({ ok: true });
+}));
+
+// Single-field edit: $set/$unset one dotted path, so the rest of the stored document
+// (fields hidden by a projection, concurrent changes) is left alone.
+router.patch('/api/doc', wrap(async (req, res) => {
+  const { connectionId, db, collection, id, path, value, unset } = req.body;
+  const match = byId(id);
+  if (!path || typeof path !== 'string') throw bad('path is required');
+  if (!unset && typeof value !== 'string') throw bad('value is required (EJSON text)');
+  const update = unset ? { $unset: { [path]: '' } } : { $set: { [path]: ejson.parse(value) } };
+  const client = await getClient(connectionId);
+  const result = await client.db(db).collection(collection).updateOne(match, update);
   if (result.matchedCount === 0) return res.status(404).json({ error: 'Document not found' });
   res.json({ ok: true });
 }));
 
 router.delete('/api/doc', wrap(async (req, res) => {
-  const { connectionId, db, collection, id } = req.body;
-  if (!id) throw bad('id is required');
-  const _id = EJSON.parse(id);
+  const match = byId(req.body.id);
+  const { connectionId, db, collection } = req.body;
   const client = await getClient(connectionId);
-  const result = await client.db(db).collection(collection).deleteOne({ _id });
+  const result = await client.db(db).collection(collection).deleteOne(match);
   if (result.deletedCount === 0) return res.status(404).json({ error: 'Document not found' });
   res.json({ ok: true });
 }));
