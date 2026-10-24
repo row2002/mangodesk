@@ -33,6 +33,9 @@
 .tree-coll.active { background: var(--accent-dim); color: #fff; }
 .tree-coll.active .tree-count { color: rgba(255, 255, 255, 0.75); }
 
+.tree-db-head:focus-visible,
+.tree-coll:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
 .tree-coll-name { overflow: hidden; text-overflow: ellipsis; }
 .tree-count { font-size: 11px; flex: none; }
 .tree-error { color: var(--danger); cursor: default; }

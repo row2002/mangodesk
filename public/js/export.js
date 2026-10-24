@@ -144,8 +144,10 @@
 
   // Plain form POST so the browser streams the download straight to disk
   // instead of buffering the whole export in a blob.
-  function doExport() {
+  async function doExport() {
     errorEl.textContent = '';
+    // a form POST to a dead server just shows nothing in the hidden frame — check first
+    try { await App.api('/api/version'); } catch (e) { errorEl.textContent = e.message; return; }
     busy();
     const { connectionId, db, collection } = App.state;
     const fields = {

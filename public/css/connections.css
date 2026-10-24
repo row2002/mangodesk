@@ -67,6 +67,16 @@
 
 .conn-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .conn-row2.hostport { grid-template-columns: 1fr 96px; }
+.conn-row2.hostport:has(> .conn-field[hidden]) { grid-template-columns: 1fr; }
+.conn-row2.namecolor { grid-template-columns: 1fr 150px; }
+.conn-field[hidden] { display: none; }
+
+.conn-color-wrap { display: flex; align-items: center; gap: 2px; }
+.conn-color-wrap select { flex: 1; min-width: 0; }
+
+.conn-config { font-size: 11px; word-break: break-all; }
+.conn-config[hidden] { display: none; }
+.conn-config code { font-size: 11px; }
 
 .conn-pass { display: flex; gap: 4px; }
 .conn-pass input { flex: 1; width: auto; }
@@ -132,6 +142,33 @@
 .conn-list { padding: 4px 0 8px; overflow-y: auto; }
 
 .conn-empty { padding: 4px 12px; }
+.conn-load-err { color: var(--danger); }
+
+/* first-run welcome (no saved connections) */
+.conn-welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px 4px;
+}
+.conn-welcome-title { font-size: 15px; font-weight: 600; }
+.conn-quick { padding: 7px 12px; }
+.conn-welcome-err { color: var(--danger); font-size: 12px; }
+.conn-welcome-err:empty { display: none; }
+.conn-welcome-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.conn-welcome-row button { flex: 1; white-space: nowrap; }
+.conn-welcome-hint { font-size: 12px; margin-top: 4px; }
+.conn-welcome-hint code {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 1px 5px;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  word-break: break-all;
+}
 
 .conn-item {
   display: flex;
@@ -203,6 +240,8 @@
 #conn-overlay[hidden] { display: none; }
 
 .conn-close { display: none; }
+/* belt and braces: the picker must show even if #sidebar is still display:none */
+body.conn-modal #sidebar[hidden] { display: flex; }
 
 body.conn-modal #connections-panel {
   position: fixed;

@@ -48,8 +48,47 @@ body { display: flex; flex-direction: column; }
   border-bottom: 1px solid var(--border);
 }
 
-#logo { font-weight: 600; font-size: 15px; }
-#target-label { color: var(--text-dim); font-family: Consolas, monospace; }
+#logo { font-weight: 600; font-size: 15px; cursor: default; }
+#app-version { font-weight: 400; font-size: 11px; }
+#target-label {
+  color: var(--text-dim);
+  font-family: Consolas, monospace;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.target-conn { color: var(--text); font-weight: 600; }
+
+/* Per-connection colour tag (C4): a dot in lists, a stripe on the top bar */
+[data-color="red"] { --conn-color: #e5484d; }
+[data-color="orange"] { --conn-color: #f08c00; }
+[data-color="green"] { --conn-color: #3fb950; }
+[data-color="blue"] { --conn-color: #4a90e2; }
+[data-color="purple"] { --conn-color: #a371f7; }
+#topbar { border-top: 3px solid var(--conn-color, transparent); }
+.target-conn[data-color]:not([data-color=""])::before,
+.conn-dot {
+  content: "";
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--conn-color, transparent);
+  vertical-align: 1px;
+}
+.conn-dot:not([data-color]), .conn-dot[data-color=""] { display: none; }
+
+#server-down {
+  padding: 8px 14px;
+  background: var(--danger);
+  color: #fff;
+  font-weight: 600;
+}
+#server-down[hidden] { display: none; }
+#server-down code { background: rgba(0, 0, 0, 0.2); padding: 0 4px; border-radius: 3px; }
 
 #layout { display: flex; flex: 1; min-height: 0; }
 
@@ -157,7 +196,33 @@ code, pre, .mono { font-family: Consolas, "Courier New", monospace; }
 #toast.err { color: var(--danger); }
 #toast-undo { margin-left: 8px; padding: 1px 8px; font-size: 11px; }
 
-#theme-toggle { padding: 3px 9px; font-size: 14px; line-height: 1; }
+#theme-toggle, #help-toggle { padding: 3px 9px; font-size: 14px; line-height: 1; }
+
+/* Keyboard shortcuts dialog */
+.help-dialog { min-width: 380px; }
+.help-dialog h3 { margin: 0 0 6px; font-size: 15px; }
+.help-dialog table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+.help-dialog caption {
+  text-align: left;
+  padding: 6px 0 3px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+.help-dialog td { padding: 3px 0; vertical-align: top; }
+.help-dialog td:first-child { width: 45%; white-space: nowrap; color: var(--text-dim); }
+.help-foot { font-size: 11px; word-break: break-all; }
+kbd {
+  font: 11px Consolas, monospace;
+  color: var(--text);
+  padding: 1px 5px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}
 
 /* Shared confirm dialog */
 .app-confirm {

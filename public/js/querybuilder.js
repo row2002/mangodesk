@@ -34,6 +34,8 @@
   const OPS = {
     string: ['equals', 'not equals', 'contains', 'starts with', '>', '>=', '<', '<=', 'in', 'exists', 'not exists'],
     number: ['equals', 'not equals', '>', '>=', '<', '<=', 'in', 'exists', 'not exists'],
+    long: ['equals', 'not equals', '>', '>=', '<', '<=', 'in', 'exists', 'not exists'],
+    decimal: ['equals', 'not equals', '>', '>=', '<', '<=', 'in', 'exists', 'not exists'],
     date: ['equals', 'not equals', '>', '>=', '<', '<=', 'in', 'exists', 'not exists'],
     objectId: ['equals', 'not equals', 'in', 'exists', 'not exists'],
     boolean: ['equals', 'not equals', 'exists', 'not exists'],
@@ -43,25 +45,72 @@
   };
   const opsFor = (type) => OPS[type] || OPS.string;
 
+  // Dates are kept as ISO strings (UTC, "Z"). How much of the time is written decides
+  // what "equals" means: to the millisecond it is that instant, to the second or minute
+  // (as the picker writes a whole value) it is that whole second or minute.
+  // A string without a zone is an old saved condition typed in local time.
+  function dateSpan(raw) {
+    const t = String(raw).trim();
+    const ms = new Date(t).getTime();
+    const span = /T\d\d:\d\d:\d\d\.\d/.test(t) ? 0
+      : /T\d\d:\d\d:\d\d/.test(t) ? 1000
+        : /T\d\d:\d\d/.test(t) ? 60000 : 86400000;
+    return { ms, span };
+  }
+  const $date = (ms) => ({ $date: { $numberLong: String(ms) } });
+
+  // ISO string → datetime-local value (local wall time), to the precision it has.
+  function dateToInput(raw) {
+    const { ms, span } = dateSpan(raw);
+    if (!Number.isFinite(ms)) return '';
+    const local = new Date(ms - new Date(ms).getTimezoneOffset() * 60000).toISOString();
+    return local.slice(0, span === 0 ? 23 : span === 1000 ? 19 : 16);
+  }
+  // datetime-local value → ISO string (UTC), keeping the precision typed.
+  function inputToDate(v) {
+    const ms = new Date(v).getTime();
+    if (!v || !Number.isFinite(ms)) return '';
+    const iso = new Date(ms).toISOString();
+    return /:\d\d\.\d/.test(v) ? iso : (/:\d\d:\d\d$/.test(v) ? iso.slice(0, 19) : iso.slice(0, 16)) + 'Z';
+  }
+
+  const isNum = (t) => t !== '' && (!isNaN(Number(t)) || /^[-+]?(NaN|Inf(inity)?)$/i.test(t));
+
+  // Values in the filter are canonical EJSON where JSON can't say it (C3); plain JSON
+  // numbers compare numerically against Int32, Int64, Double and Decimal128 alike.
   function typedValue(raw, type) {
+    const t = String(raw == null ? '' : raw).trim();
+    if (type === 'null') return null;
     if (type === 'number') {
-      const n = parseFloat(raw);
-      return Number.isFinite(n) ? n : null;
+      // past 2^53 a JS number no longer is the integer typed
+      if (/^-?\d+$/.test(t) && !Number.isSafeInteger(Number(t))) return { $numberLong: t };
+      if (/^[-+]?(NaN|Infinity)$/.test(t)) return { $numberDouble: t.replace('+', '') };
+      const n = Number(t);
+      return t !== '' && Number.isFinite(n) ? n : null;
     }
+    if (type === 'long') return /^[-+]?\d+$/.test(t) ? { $numberLong: t.replace('+', '') } : null;
+    // a double never equals the decimal it was printed from (12.34 ≠ Decimal128('12.34'))
+    if (type === 'decimal') return isNum(t) ? { $numberDecimal: t } : null;
     if (type === 'boolean') return raw === 'true';
     if (type === 'date') {
-      const ms = new Date(raw).getTime();
+      const { ms } = dateSpan(t);
       // invalid date → null, so the preview makes the mistake visible
       // instead of silently querying for 1970-01-01
-      if (!Number.isFinite(ms)) return null;
-      return { $date: { $numberLong: String(ms) } };
+      return Number.isFinite(ms) ? $date(ms) : null;
     }
-    if (type === 'objectId') return { $oid: raw };
+    if (type === 'objectId') return { $oid: t };
     return raw;
   }
 
   function condToObj(c) {
     const v = () => typedValue(c.value, c.type);
+    if (c.type === 'date' && (c.op === 'equals' || c.op === 'not equals')) {
+      const { ms, span } = dateSpan(c.value);
+      if (span && Number.isFinite(ms)) {
+        const range = { $gte: $date(ms), $lt: $date(ms + span) };
+        return { [c.path]: c.op === 'equals' ? range : { $not: range } };
+      }
+    }
     switch (c.op) {
       case 'exists': return { [c.path]: { $exists: true } };
       case 'not exists': return { [c.path]: { $exists: false } };
@@ -92,16 +141,49 @@
   const buildProj = () =>
     projCheck.checked ? Object.fromEntries(projItems.map((p) => [p.path, p.mode])) : {};
 
+  // A dropped value as {type, value-text}. The grid sends text plus a type; a raw
+  // canonical EJSON value ({"$numberLong": …}, {"$date": …}) is understood as well.
+  function dropValue(f) {
+    let { type, value: v } = f;
+    if (v === null) return { type: 'null' };
+    if (typeof v === 'number') return { type: 'number', value: String(v) };
+    if (typeof v === 'boolean') return { type: 'boolean', value: String(v) };
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      if ('$numberInt' in v) return { type: 'number', value: v.$numberInt };
+      if ('$numberDouble' in v) return { type: 'number', value: v.$numberDouble };
+      if ('$numberLong' in v) return { type: 'long', value: v.$numberLong };
+      if ('$numberDecimal' in v) return { type: 'decimal', value: v.$numberDecimal };
+      if ('$oid' in v) return { type: 'objectId', value: v.$oid };
+      if ('$date' in v) {
+        const d = v.$date;
+        const ms = d && typeof d === 'object' ? Number(d.$numberLong) : new Date(d).getTime();
+        return Number.isFinite(ms) ? { type: 'date', value: new Date(ms).toISOString() } : { type: 'date' };
+      }
+      return { type: type || 'object' };
+    }
+    if (v === undefined) return { type };
+    v = String(v);
+    if (type === 'date') {
+      // Zone-less text: cut from toISOString() it is UTC; with milliseconds it is the
+      // inline editor's local wall time, which new Date() already reads as local.
+      if (!/(Z|[+-]\d\d:?\d\d)$/.test(v) && /T\d\d:\d\d(:\d\d)?$/.test(v)) v += 'Z';
+      const { ms, span } = dateSpan(v);
+      if (!Number.isFinite(ms)) return { type };
+      const iso = new Date(ms).toISOString();
+      v = span === 0 ? iso : (span === 1000 ? iso.slice(0, 19) : iso.slice(0, 16)) + 'Z';
+    }
+    return { type, value: v };
+  }
+
   // Build a condition from a drop payload; cells dragged from the data grid
   // carry a value, so the condition arrives prefilled as "field equals value".
   function condFrom(f) {
-    const hasVal = f.value !== undefined && opsFor(f.type).includes('equals');
-    return {
-      path: f.path,
-      type: f.type,
-      op: hasVal ? 'equals' : opsFor(f.type)[0],
-      value: hasVal ? String(f.value) : '',
-    };
+    const { type, value } = dropValue(f);
+    const ops = opsFor(type);
+    const hasVal = value !== undefined && ops.includes('equals');
+    // nothing to compare an array or sub-document with: start from "exists"
+    const op = hasVal || type === 'null' ? 'equals' : (ops.includes('exists') ? 'exists' : ops[0]);
+    return { path: f.path, type: OPS[type] ? type : 'string', op, value: hasVal ? value : '' };
   }
 
   // ---- drag & drop plumbing ----
@@ -248,7 +330,7 @@
 
     function renderValInput() {
       valSlot.textContent = '';
-      if (cond.op === 'exists' || cond.op === 'not exists') return;
+      if (cond.op === 'exists' || cond.op === 'not exists' || cond.type === 'null') return;
       if (cond.type === 'boolean' && cond.op !== 'in') {
         const sel = el('select');
         for (const v of ['true', 'false']) {
@@ -298,15 +380,21 @@
         return;
       }
       const inp = el('input');
-      if (cond.type === 'number') {
-        inp.type = 'number';
-        inp.step = 'any';
-      } else if (cond.type === 'date') {
+      if (cond.type === 'date') {
+        // local wall time in the picker, the exact instant (to the ms) in cond.value
         inp.type = 'datetime-local';
-      } else {
-        inp.type = 'text';
-        if (cond.type === 'objectId') inp.placeholder = 'hex id';
+        inp.step = '0.001';
+        inp.value = dateToInput(cond.value);
+        inp.title = 'Local time. To the minute or second, "equals" matches that whole minute/second.';
+        inp.addEventListener('input', () => { cond.value = inputToDate(inp.value); update(); });
+        valSlot.appendChild(inp);
+        return;
       }
+      // text, not type=number: a number input rounds long/decimal digits and drops NaN
+      inp.type = 'text';
+      if (cond.type === 'number' || cond.type === 'decimal') inp.inputMode = 'decimal';
+      else if (cond.type === 'long') inp.inputMode = 'numeric';
+      else if (cond.type === 'objectId') inp.placeholder = 'hex id';
       inp.value = cond.value;
       inp.addEventListener('input', () => { cond.value = inp.value; update(); });
       valSlot.appendChild(inp);

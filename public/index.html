@@ -13,11 +13,15 @@
 <body>
   <header id="topbar">
     <button id="sidebar-toggle" title="Toggle sidebar">☰</button>
-    <span id="logo">🥭 MangoDesk</span>
+    <span id="logo">🥭 MangoDesk <span id="app-version" class="muted"></span></span>
     <span id="target-label"></span>
     <span id="toast"></span>
+    <button id="help-toggle" title="Keyboard shortcuts (?)">?</button>
     <button id="theme-toggle" title="Toggle light / dark theme">🌙</button>
   </header>
+  <div id="server-down" role="alert" hidden>
+    MangoDesk server is not running — start it again (<code>npx mangodesk</code> or the app), then this page reconnects by itself.
+  </div>
   <div id="layout">
     <aside id="sidebar">
       <section id="connections-panel"></section>
@@ -34,6 +38,7 @@
     <aside id="query-panel"></aside>
   </div>
   <script src="app.js"></script>
+  <script src="js/shell.js"></script>
   <script src="js/connections.js"></script>
   <script src="js/browser.js"></script>
   <script src="js/querybuilder.js"></script>
