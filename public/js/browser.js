@@ -11,8 +11,15 @@
     return hint;
   }
 
+  const treeContainers = new Map(); // connectionId -> its databases container
+
   async function loadTreeInto(connId, container) {
+    treeContainers.set(connId, container);
     container.setAttribute('role', 'group');
+    // a reload (after a create / drop) keeps the databases that were open open
+    const open = new Set([...container.querySelectorAll('.tree-db')]
+      .filter((n) => n.querySelector('.tree-db-head').getAttribute('aria-expanded') === 'true')
+      .map((n) => n.dataset.db));
     container.textContent = '';
     container.appendChild(treeHintEl('loading…'));
     let dbs;
@@ -29,7 +36,7 @@
       const node = dbNode(connId, dbName);
       container.appendChild(node);
       // auto-open the active db so the current collection is visible in the tree
-      if (connId === App.state.connectionId && dbName === App.state.db) {
+      if (open.has(dbName) || (connId === App.state.connectionId && dbName === App.state.db)) {
         node.querySelector('.tree-db-head').click();
       }
     });
@@ -78,6 +85,7 @@
   function dbNode(connId, dbName) {
     const node = document.createElement('div');
     node.className = 'tree-db';
+    Object.assign(node.dataset, { conn: connId, db: dbName });
     const head = document.createElement('div');
     head.className = 'tree-db-head';
     head.setAttribute('aria-expanded', 'false');
@@ -97,12 +105,30 @@
     children.setAttribute('role', 'group');
     let loaded = false;
 
-    head.addEventListener('click', async () => {
+    head.addEventListener('click', () => {
       children.hidden = !children.hidden;
       arrow.textContent = children.hidden ? '▸' : '▾';
       head.setAttribute('aria-expanded', String(!children.hidden));
       if (loaded || children.hidden) return;
+      loadColls();
+    });
+
+    // Re-read the collection list (after a create / rename / drop) and show it.
+    // Resolves with the number of collections, or -1 when the list failed to load.
+    node.reload = () => {
+      loaded = false;
+      if (!children.hidden) return loadColls();
+      children.hidden = false;
+      arrow.textContent = '▾';
+      head.setAttribute('aria-expanded', 'true');
+      return loadColls();
+    };
+
+    async function loadColls() {
       loaded = true;
+      const focusedColl = document.activeElement && document.activeElement.dataset
+        && children.contains(document.activeElement) ? document.activeElement.dataset.coll : null;
+      children.textContent = '';
       const loading = document.createElement('div');
       loading.className = 'tree-coll muted';
       loading.textContent = 'loading…';
@@ -141,7 +167,9 @@
             if (e.key === 'ArrowLeft') { e.preventDefault(); head.focus(); }
           });
           children.appendChild(row);
+          if (name === focusedColl) row.focus();
         });
+        return colls.length;
       } catch (e) {
         loaded = false;
         children.textContent = '';
@@ -149,12 +177,154 @@
         err.className = 'tree-coll tree-error';
         err.textContent = e.message;
         children.appendChild(err);
+        return -1;
       }
-    });
+    }
 
     node.append(head, children);
     return node;
   }
+
+  /* ---- tree context menu: create / rename / clear / drop ---- */
+
+  const dbUrl = (connId, dbName) =>
+    `/api/connections/${encodeURIComponent(connId)}/databases/${encodeURIComponent(dbName)}`;
+  const collUrl = (t) => `${dbUrl(t.connectionId, t.db)}/collections/${encodeURIComponent(t.collection)}`;
+  const isActive = (t) => App.state.connectionId === t.connectionId && App.state.db === t.db
+    && (t.collection === undefined || App.state.collection === t.collection);
+  // the server's own databases: no "Drop database" for them (routes/admin.js refuses too)
+  const SYSTEM_DBS = ['admin', 'config', 'local'];
+
+  // After a create / rename / drop: re-read that database's collections. A database
+  // that came or went (or was left empty, which drops it) needs the connection's
+  // database list instead.
+  async function reloadTree(connId, dbName) {
+    const c = treeContainers.get(connId);
+    if (!c || !c.dataset.loaded) return; // never expanded: it loads fresh when opened
+    const node = dbName !== undefined
+      && [...c.querySelectorAll('.tree-db')].find((n) => n.dataset.db === dbName);
+    if (node && await node.reload() > 0) return;
+    await loadTreeInto(connId, c);
+  }
+
+  // A new database is made by creating its first collection (dbName undefined).
+  async function createCollection(connId, dbName) {
+    const newDb = dbName === undefined;
+    const fields = [];
+    if (newDb) fields.push({ name: 'db', label: 'Database name', required: true });
+    fields.push({
+      name: 'coll', label: newDb ? 'First collection' : 'Collection name', required: true,
+      hint: newDb ? 'MongoDB creates a database together with its first collection.' : '',
+    });
+    const t = await App.form({
+      title: newDb ? 'Create database' : `Create collection in ${dbName}`,
+      fields,
+      okLabel: 'Create',
+      submit: async (v) => {
+        const t = { connectionId: connId, db: newDb ? v.db : dbName, collection: v.coll };
+        await App.api(dbUrl(t.connectionId, t.db) + '/collections', { method: 'POST', body: { name: t.collection } });
+        return t;
+      },
+    });
+    if (!t) return;
+    App.toast(`Created ${t.db}.${t.collection}`);
+    App.emit('collection-changed', t);
+    // reload first, then open it: the reloaded rows pick up the new target as active
+    reloadTree(connId, newDb ? undefined : dbName);
+    App.setTarget(t.connectionId, t.db, t.collection);
+  }
+
+  async function renameCollection(t) {
+    const to = await App.form({
+      title: `Rename ${t.db}.${t.collection}`,
+      fields: [{ name: 'name', label: 'New name', value: t.collection, required: true }],
+      okLabel: 'Rename',
+      submit: async ({ name }) => {
+        if (name === t.collection) return null; // nothing to do
+        await App.api(collUrl(t), { method: 'PATCH', body: { name } });
+        return name;
+      },
+    });
+    if (!to) return;
+    App.toast(`Renamed to ${t.db}.${to}`);
+    const active = isActive(t);
+    App.emit('collection-changed', { ...t, collection: to });
+    reloadTree(t.connectionId, t.db);
+    if (active) App.setTarget(t.connectionId, t.db, to, { replace: true });
+  }
+
+  async function clearCollection(t) {
+    if (!await App.confirm(`Delete every document in "${t.db}.${t.collection}"? `
+      + 'The collection and its indexes stay. This cannot be undone.', 'Clear')) return;
+    try {
+      const r = await App.api(collUrl(t) + '/documents', { method: 'DELETE' });
+      App.toast(`Cleared ${t.collection}: ${r.deletedCount.toLocaleString()} document${r.deletedCount === 1 ? '' : 's'} deleted`);
+      wrote(t); // counts in the tree, and the grid if it shows this collection
+    } catch (e) {
+      App.toast(e.message, true);
+    }
+  }
+
+  async function dropCollection(t) {
+    if (!await App.confirm(`Drop collection "${t.db}.${t.collection}"? Its documents and indexes `
+      + 'are deleted. This cannot be undone.', 'Drop collection', { requireText: t.collection })) return;
+    try {
+      await App.api(collUrl(t), { method: 'DELETE' });
+    } catch (e) {
+      App.toast(e.message, true);
+      return;
+    }
+    App.toast(`Dropped ${t.db}.${t.collection}`);
+    if (isActive(t)) App.setTarget(null, null, null);
+    App.emit('collection-changed', t);
+    reloadTree(t.connectionId, t.db);
+  }
+
+  async function dropDatabase(connId, dbName) {
+    if (!await App.confirm(`Drop database "${dbName}" with all its collections? `
+      + 'This cannot be undone.', 'Drop database', { requireText: dbName })) return;
+    try {
+      await App.api(dbUrl(connId, dbName), { method: 'DELETE' });
+    } catch (e) {
+      App.toast(e.message, true);
+      return;
+    }
+    App.toast(`Dropped database ${dbName}`);
+    if (isActive({ connectionId: connId, db: dbName })) App.setTarget(null, null, null);
+    App.emit('collection-changed', { connectionId: connId, db: dbName, collection: null });
+    reloadTree(connId);
+  }
+
+  document.getElementById('connections-panel').addEventListener('contextmenu', (e) => {
+    const row = e.target.closest('.tree-coll[data-coll]');
+    const head = !row && e.target.closest('.tree-db-head');
+    const conn = !row && !head && e.target.closest('.conn-item[data-conn]');
+    let items;
+    if (row) {
+      const t = { connectionId: row.dataset.conn, db: row.dataset.db, collection: row.dataset.coll };
+      items = [
+        ['Open', () => row.click()],
+        ['Create collection…', () => createCollection(t.connectionId, t.db)],
+        ['Rename collection…', () => renameCollection(t)],
+        null,
+        ['Clear collection…', () => clearCollection(t), true],
+        ['Drop collection…', () => dropCollection(t), true],
+      ];
+    } else if (head) {
+      const { conn: connId, db: dbName } = head.parentElement.dataset;
+      items = [
+        ['Create collection…', () => createCollection(connId, dbName)],
+        ['Refresh', () => reloadTree(connId, dbName)],
+      ];
+      if (!SYSTEM_DBS.includes(dbName)) items.push(null, ['Drop database…', () => dropDatabase(connId, dbName), true]);
+    } else if (conn) {
+      items = [['Create database…', () => createCollection(conn.dataset.conn)]];
+    } else {
+      return; // empty space: leave the browser menu alone
+    }
+    e.preventDefault();
+    openMenu(e, row || head || conn, items);
+  });
 
   /* ================= DATA GRID ================= */
 
@@ -223,8 +393,8 @@
     </div>
     <div id="rtab-explain" hidden>
       <div id="explain-summary"></div>
-      <div class="panel-title">Indexes</div>
-      <pre id="explain-indexes"></pre>
+      <div class="panel-title explain-idx-title">Indexes <button id="idx-create">+ Create index…</button></div>
+      <div id="explain-indexes"></div>
       <div class="panel-title">Query planner</div>
       <pre id="explain-plan"></pre>
     </div>`;
@@ -1339,8 +1509,7 @@
         : usesIndex
           ? `Index scan${index ? ' using "' + index + '"' : ''} — ${stages.join(' → ')}`
           : `No index used — ${stages.join(' → ') || 'unknown plan'}`; // e.g. EOF: no such collection
-      explainIndexes.textContent = res.indexes
-        .map((i) => `${i.name}: ${JSON.stringify(i.key)}${i.unique ? ' (unique)' : ''}`).join('\n');
+      renderIndexes(res.indexes, { connectionId, db, collection });
       explainPlan.textContent = JSON.stringify(winning || res.plan, null, 2);
     } catch (e) {
       if (seq !== explainSeq) return;
@@ -1348,6 +1517,106 @@
       explainSummary.textContent = e.message;
     }
   }
+
+  /* ---- indexes (Explain tab): list, create, drop ---- */
+
+  function indexFlags(i) {
+    const flags = [];
+    if (i.unique) flags.push('unique');
+    if (i.sparse) flags.push('sparse');
+    if (i.expireAfterSeconds !== undefined) flags.push(`TTL ${i.expireAfterSeconds}s`);
+    if (i.partialFilterExpression) flags.push('partial ' + shell(i.partialFilterExpression));
+    if (i.hidden) flags.push('hidden');
+    return flags.join(', ');
+  }
+
+  function renderIndexes(indexes, t) {
+    explainIndexes.textContent = '';
+    const table = document.createElement('table');
+    table.className = 'idx-table';
+    for (const i of indexes) {
+      const tr = table.insertRow();
+      tr.insertCell().textContent = i.name;
+      const key = tr.insertCell();
+      key.className = 'mono';
+      key.textContent = shell(i.key);
+      tr.insertCell().textContent = indexFlags(i);
+      const act = tr.insertCell();
+      // the _id index goes with the collection, never on its own
+      if (i.name !== '_id_') act.appendChild(actionBtn('Drop', () => dropIndex(t, i.name), true));
+    }
+    explainIndexes.appendChild(table);
+  }
+
+  // After an index change: reload the Explain tab (the plan may now use the index) if it
+  // still shows that collection.
+  function indexesChanged(t) {
+    App.emit('collection-changed', t);
+    if (isActive(t)) loadExplain();
+  }
+
+  // Index key text -> EJSON key document, or throws with a readable message.
+  function indexKeys(text) {
+    const keys = toEjsonValue(text, 'Keys');
+    if (keys === null || typeof keys !== 'object' || Array.isArray(keys)) throw new Error('Keys must be an object, e.g. { field: 1 }');
+    if (!Object.keys(keys).length) throw new Error('Keys: name at least one field, e.g. { field: 1 }');
+    return keys;
+  }
+
+  async function createIndex() {
+    const t = target();
+    if (!t.collection) { App.toast('Select a collection first', true); return; }
+    const name = await App.form({
+      title: `Create index on ${t.db}.${t.collection}`,
+      fields: [
+        { name: 'keys', label: 'Keys', type: 'textarea', mono: true, required: true, placeholder: '{ field: 1 }',
+          hint: 'mongosh syntax: 1 / -1 per field, or "text", "2dsphere", "hashed"' },
+        { name: 'name', label: 'Name', placeholder: 'generated from the keys' },
+        { name: 'unique', label: 'Unique', type: 'checkbox' },
+        { name: 'sparse', label: 'Sparse — skip documents without the field', type: 'checkbox' },
+        { name: 'ttl', label: 'TTL — delete documents after (seconds)', type: 'number', placeholder: 'off',
+          hint: 'Only on a single date field.' },
+      ],
+      okLabel: 'Create',
+      validate: (v) => {
+        if (v.keys.trim()) indexKeys(v.keys);
+        if (v.ttl !== '' && !(Number.isInteger(Number(v.ttl)) && Number(v.ttl) >= 0)) {
+          return 'TTL must be a whole number of seconds, 0 or more';
+        }
+        return '';
+      },
+      submit: async (v) => {
+        const r = await App.api(collUrl(t) + '/indexes', {
+          method: 'POST',
+          body: {
+            keys: JSON.stringify(indexKeys(v.keys)),
+            name: v.name.trim() || undefined,
+            unique: v.unique,
+            sparse: v.sparse,
+            expireAfterSeconds: v.ttl === '' ? undefined : Number(v.ttl),
+          },
+        });
+        return r.name;
+      },
+    });
+    if (!name) return;
+    App.toast(`Index "${name}" created`);
+    indexesChanged(t);
+  }
+
+  async function dropIndex(t, name) {
+    if (!await App.confirm(`Drop index "${name}" on ${t.db}.${t.collection}?`, 'Drop index')) return;
+    try {
+      await App.api(`${collUrl(t)}/indexes/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    } catch (e) {
+      App.toast(e.message, true);
+      return;
+    }
+    App.toast(`Index "${name}" dropped`);
+    indexesChanged(t);
+  }
+
+  document.getElementById('idx-create').addEventListener('click', createIndex);
 
   document.getElementById('code-copy').addEventListener('click', () => copy(codeEl.textContent));
 
@@ -1431,7 +1700,6 @@
     const path = (cell && cell._path) || (row && row._path);
     const segs = (cell && cell._path && cell._segs) || (row && row._segs);
     e.preventDefault();
-    closeCtx();
 
     const items = [];
     if (path) {
@@ -1449,25 +1717,38 @@
     items.push(null);
     items.push(['Edit document…', () => editDoc(doc)]);
     items.push(['Delete document…', () => deleteDoc(doc)]);
+    openMenu(e, cell, items);
+  });
 
+  // items: [label, fn, danger?] or null for a separator. Opened from the keyboard
+  // (context-menu key, Shift+F10: button -1 in Chromium, no position elsewhere) it is
+  // anchored to the element and its first entry takes focus.
+  function openMenu(e, anchor, items) {
+    closeCtx();
     ctxMenu = document.createElement('div');
     ctxMenu.className = 'ctx-menu';
+    ctxMenu.setAttribute('role', 'menu');
     for (const item of items) {
       if (!item) { ctxMenu.appendChild(document.createElement('hr')); continue; }
-      const [label, fn] = item;
+      const [label, fn, danger] = item;
       const b = document.createElement('button');
       b.textContent = label;
+      b.setAttribute('role', 'menuitem');
+      if (danger) b.className = 'danger';
       b.addEventListener('click', fn);
       ctxMenu.appendChild(b);
     }
-    ctxMenu.style.left = e.clientX + 'px';
-    ctxMenu.style.top = e.clientY + 'px';
+    const keyboard = anchor && (e.button === -1 || (!e.clientX && !e.clientY));
+    const at = keyboard ? anchor.getBoundingClientRect() : null;
+    ctxMenu.style.left = (keyboard ? at.left + 16 : e.clientX) + 'px';
+    ctxMenu.style.top = (keyboard ? at.bottom : e.clientY) + 'px';
     document.body.appendChild(ctxMenu);
     // keep it on screen when the click lands near the right/bottom edge
     const r = ctxMenu.getBoundingClientRect();
     if (r.right > innerWidth) ctxMenu.style.left = Math.max(0, innerWidth - r.width - 4) + 'px';
     if (r.bottom > innerHeight) ctxMenu.style.top = Math.max(0, innerHeight - r.height - 4) + 'px';
-  });
+    if (keyboard) ctxMenu.querySelector('button').focus();
+  }
 
   /* ---- keyboard shortcuts ---- */
 

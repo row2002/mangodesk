@@ -98,8 +98,10 @@ const App = {
   },
 
   // Confirmation prompt. Native <dialog> gives Esc, focus trap and a backdrop for free,
-  // and unlike window.confirm it looks like the rest of the app.
-  confirm(message, okLabel = 'Delete') {
+  // and unlike window.confirm it looks like the rest of the app. With requireText the
+  // OK button stays disabled until exactly that text is typed (drops of whole
+  // collections / databases).
+  confirm(message, okLabel = 'Delete', { requireText } = {}) {
     const dlg = document.createElement('dialog');
     dlg.className = 'app-confirm';
     const p = document.createElement('p');
@@ -112,7 +114,27 @@ const App = {
     ok.className = 'danger';
     ok.textContent = okLabel;
     row.append(cancel, ok);
-    dlg.append(p, row);
+    dlg.appendChild(p);
+    let typed = null;
+    if (requireText !== undefined) {
+      const label = document.createElement('label');
+      label.className = 'app-form-field';
+      const what = document.createElement('span');
+      what.append('Type ');
+      const b = document.createElement('b');
+      b.className = 'mono';
+      b.textContent = requireText;
+      what.append(b, ' to confirm');
+      typed = document.createElement('input');
+      typed.className = 'mono';
+      typed.spellcheck = false;
+      typed.autocomplete = 'off';
+      label.append(what, typed);
+      dlg.appendChild(label);
+      ok.disabled = true;
+      typed.addEventListener('input', () => { ok.disabled = typed.value !== requireText; });
+    }
+    dlg.appendChild(row);
     document.body.appendChild(dlg);
     return new Promise((resolve) => {
       let done = false;
@@ -127,10 +149,120 @@ const App = {
       };
       ok.addEventListener('click', () => finish(true));
       cancel.addEventListener('click', () => finish(false));
+      if (typed) typed.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !ok.disabled) finish(true); });
       dlg.addEventListener('cancel', () => finish(false)); // Esc
       dlg.addEventListener('close', () => finish(false));
       dlg.showModal();
-      cancel.focus();
+      (typed || cancel).focus();
+    });
+  },
+
+  // Small input dialog. fields: [{ name, label, type ('text' | 'number' | 'checkbox' |
+  // 'textarea'), value, placeholder, hint, required, mono }]. validate(values) returns an error to show
+  // (Submit stays disabled); submit(values) runs on Submit and may throw — the message
+  // is shown and the dialog stays open. Resolves with submit's result, or null on Cancel.
+  form({ title, fields, okLabel = 'OK', validate, submit }) {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'app-confirm app-form';
+    const h = document.createElement('h3');
+    h.textContent = title;
+    dlg.appendChild(h);
+    const inputs = {};
+    for (const f of fields) {
+      const label = document.createElement('label');
+      label.className = 'app-form-field' + (f.type === 'checkbox' ? ' app-form-check' : '');
+      const text = document.createElement('span');
+      text.textContent = f.label;
+      let input;
+      if (f.type === 'textarea') {
+        input = document.createElement('textarea');
+        input.rows = 3;
+      } else {
+        input = document.createElement('input');
+        input.type = f.type || 'text';
+      }
+      if (f.type === 'checkbox') input.checked = !!f.value;
+      else input.value = f.value == null ? '' : f.value;
+      if (f.placeholder) input.placeholder = f.placeholder;
+      if (f.type !== 'checkbox') { input.spellcheck = false; input.autocomplete = 'off'; }
+      if (f.mono) input.classList.add('mono');
+      if (f.type === 'checkbox') label.append(input, text);
+      else label.append(text, input);
+      if (f.hint) {
+        const hint = document.createElement('small');
+        hint.className = 'muted';
+        hint.textContent = f.hint;
+        label.appendChild(hint);
+      }
+      inputs[f.name] = input;
+      dlg.appendChild(label);
+    }
+    const err = document.createElement('div');
+    err.className = 'app-form-error';
+    const row = document.createElement('div');
+    row.className = 'app-confirm-actions';
+    const cancel = document.createElement('button');
+    cancel.textContent = 'Cancel';
+    const ok = document.createElement('button');
+    ok.className = 'primary';
+    ok.textContent = okLabel;
+    row.append(cancel, ok);
+    dlg.append(err, row);
+    document.body.appendChild(dlg);
+
+    const values = () => Object.fromEntries(fields.map((f) => [f.name,
+      f.type === 'checkbox' ? inputs[f.name].checked : inputs[f.name].value]));
+    let busy = false;
+    // a blank required field only disables Submit; validate's message is shown
+    const check = () => {
+      const v = values();
+      let msg = '';
+      try { msg = (validate && validate(v)) || ''; } catch (e) { msg = e.message; }
+      err.textContent = msg;
+      const ready = !msg && fields.every((f) => !f.required || String(v[f.name]).trim());
+      ok.disabled = busy || !ready;
+      return ready;
+    };
+    dlg.addEventListener('input', check);
+    dlg.addEventListener('change', check);
+    check();
+
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (answer) => {
+        if (done) return;
+        done = true;
+        if (dlg.open) dlg.close();
+        dlg.remove();
+        resolve(answer);
+      };
+      const onOk = async () => {
+        if (busy || !check()) return;
+        busy = true;
+        ok.disabled = true;
+        try {
+          finish(submit ? await submit(values()) : values());
+        } catch (e) {
+          err.textContent = e.message;
+        } finally {
+          busy = false;
+          if (!done) ok.disabled = false;
+        }
+      };
+      ok.addEventListener('click', onOk);
+      cancel.addEventListener('click', () => finish(null));
+      dlg.addEventListener('keydown', (e) => {
+        // Enter submits from a one-line field; Ctrl+Enter from anywhere
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || e.target.tagName === 'INPUT')) {
+          e.preventDefault();
+          onOk();
+        }
+      });
+      dlg.addEventListener('cancel', () => finish(null)); // Esc
+      dlg.addEventListener('close', () => finish(null));
+      dlg.showModal();
+      const first = Object.values(inputs)[0];
+      if (first) { first.focus(); if (first.select) first.select(); }
     });
   },
 
@@ -264,6 +396,7 @@ const SHORTCUTS = [
     ['↑ / ↓', 'Move through the sidebar tree'],
     ['→ / ←', 'Expand / collapse a database'],
     ['Enter', 'Open the focused database or collection'],
+    ['Right-click / Shift+F10', 'Tree menu: create, rename, clear, drop'],
     ['Esc', 'Close a dialog or menu'],
     ['?', 'Show this help'],
   ]],

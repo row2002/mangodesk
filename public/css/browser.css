@@ -137,6 +137,22 @@
 .explain-warn { color: var(--danger); }
 .explain-ok { color: var(--ok); }
 
+.explain-idx-title { display: flex; align-items: center; gap: 10px; }
+.explain-idx-title button { padding: 2px 10px; font-size: 12px; text-transform: none; letter-spacing: 0; font-weight: normal; }
+#explain-indexes {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+.idx-table { width: 100%; border-collapse: collapse; }
+.idx-table td { padding: 4px 10px; vertical-align: middle; border-top: 1px solid var(--border); }
+.idx-table tr:first-child td { border-top: none; }
+.idx-table td:first-child { white-space: nowrap; }
+.idx-table td.mono { word-break: break-all; }
+.idx-table td:last-child { width: 1%; text-align: right; }
+.idx-table button { padding: 1px 8px; font-size: 11px; }
+
 #query-code {
   margin: 0 0 8px;
   padding: 10px;
