@@ -8,6 +8,19 @@ for a tag (`## [X.Y.Z] - date`) into the GitHub release notes.
 ## [Unreleased]
 
 ### Added
+- Right-click menu in the sidebar tree: create a database (by creating its first
+  collection), create / rename / clear / drop a collection, drop a database. Drops
+  need the name typed to confirm; the system databases `admin`, `config` and `local`
+  are not dropped. The tree, the counts and the open collection follow each change.
+  The menu also opens from the keyboard (context-menu key or Shift+F10).
+- Index management on the Explain tab: create an index (keys in mongosh syntax;
+  unique, sparse, TTL and name options) and drop any index but `_id_`. The plan
+  re-runs afterwards, so a new index shows up as an `IXSCAN` straight away.
+- `routes/admin.js` API: `POST|PATCH|DELETE /api/connections/:id/databases/:db/collections[/:coll]`,
+  `DELETE …/collections/:coll/documents` (clear), `DELETE /api/connections/:id/databases/:db`,
+  `POST …/collections/:coll/indexes` and `DELETE …/indexes/:name`. Creating a
+  collection that exists is a 400 and dropping an index that doesn't a 404, on every
+  server version (MongoDB 7 accepts the first and MongoDB 8 the second silently).
 - Import tab: load a JSON array, NDJSON or CSV file into a collection by drag and drop
   or the file picker. JSON and NDJSON are read as canonical Extended JSON, so
   MangoDesk's own exports come back with Long, Double `1.0`, Decimal128, dates and

@@ -134,6 +134,10 @@ One JSON file, shown on start, in the connection form and in the `?` help dialog
   right-click to copy a value, a field name or the document, or to **filter by /
   exclude this value**. Every collection has a URL (`#/connection/db/collection`):
   bookmark it, share it with yourself, use Back / Forward.
+- **Management** — right-click the sidebar tree to create a database (with its first
+  collection), create / rename / clear / drop a collection, or drop a database. Drops
+  ask you to type the name first; clearing empties a collection but keeps it and its
+  indexes. `admin`, `config` and `local` can't be dropped from here.
 - **Queries** — the query bar takes mongo-shell syntax, not just strict JSON:
   unquoted keys, `ObjectId("…")`, `ISODate("…")`, `NumberLong("…")`,
   `NumberDecimal("…")`, `/regex/i` and trailing commas. Multi-line input,
@@ -149,7 +153,9 @@ One JSON file, shown on start, in the connection form and in the `?` help dialog
   every delete, single or bulk. Documents without `_id` are read-only rather than
   half-written.
 - **Explain** — query planner verdict (`COLLSCAN` is called out, including SBE and
-  sharded plans), the collection's indexes, and the winning plan.
+  sharded plans), the collection's indexes, and the winning plan. Create an index
+  right there (keys in mongosh syntax, `{ email: 1, at: -1 }`; unique, sparse, TTL,
+  name) or drop one, and the plan re-runs against it.
 - **Query Builder** — drag fields from the grid into AND/OR condition groups;
   type-aware operators and value inputs (ObjectId, date, number, long, decimal,
   boolean, null); dates match the exact instant; drag-to-sort and drag-to-projection
