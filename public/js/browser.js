@@ -58,22 +58,57 @@
 
   const fmtCount = (n) => (typeof n === 'number' ? n.toLocaleString() : String(n));
 
-  // Counts go stale after every insert/delete — re-read them for that database.
+  // Counts go stale after every insert/delete — re-read them for that database. A
+  // collection the write created (an import into a new name) gets its row too.
   async function refreshCounts(connId, dbName) {
-    const rows = [...document.querySelectorAll('#connections-panel .tree-coll[data-coll]')]
-      .filter((r) => r.dataset.conn === connId && r.dataset.db === dbName);
-    if (!rows.length) return;
+    const list = [...document.querySelectorAll('#connections-panel .tree-db-colls')]
+      .find((c) => c.dataset.conn === connId && c.dataset.db === dbName && c.dataset.loaded);
+    if (!list) return;
     try {
       const colls = await App.api(
         `/api/connections/${encodeURIComponent(connId)}/databases/${encodeURIComponent(dbName)}/collections`);
-      const counts = new Map(colls.map((c) => [c.name, c.count]));
-      rows.forEach((r) => {
-        if (counts.has(r.dataset.coll)) r.querySelector('.tree-count').textContent = fmtCount(counts.get(r.dataset.coll));
-      });
+      const rows = new Map([...list.querySelectorAll('.tree-coll[data-coll]')].map((r) => [r.dataset.coll, r]));
+      if (!rows.size && colls.length) list.textContent = ''; // drop the "(no collections)" hint
+      let prev = null;
+      for (const { name, count } of colls) { // sorted by name, like the rows
+        let row = rows.get(name);
+        if (!row) {
+          row = collRow(connId, dbName, name, count, list.previousElementSibling);
+          list.insertBefore(row, prev ? prev.nextSibling : list.firstChild);
+        }
+        row.querySelector('.tree-count').textContent = fmtCount(count);
+        prev = row;
+      }
     } catch { /* the tree keeps the old number; the grid shows the real error */ }
   }
 
   App.on('collection-changed', ({ connectionId, db }) => refreshCounts(connectionId, db));
+
+  function collRow(connId, dbName, name, count, head) {
+    const row = document.createElement('div');
+    row.className = 'tree-coll';
+    Object.assign(row.dataset, { conn: connId, db: dbName, coll: name });
+    const n = document.createElement('span');
+    n.className = 'tree-coll-name';
+    n.textContent = name;
+    const c = document.createElement('span');
+    c.className = 'tree-count muted';
+    c.textContent = fmtCount(count);
+    row.append(n, c);
+    if (connId === App.state.connectionId && dbName === App.state.db
+      && name === App.state.collection) row.classList.add('active');
+    row.addEventListener('click', () => {
+      document.querySelectorAll('#connections-panel .tree-coll.active')
+        .forEach((el) => el.classList.remove('active'));
+      row.classList.add('active');
+      App.setTarget(connId, dbName, name);
+    });
+    treeItem(row, () => row.click());
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft') { e.preventDefault(); head.focus(); }
+    });
+    return row;
+  }
 
   function dbNode(connId, dbName) {
     const node = document.createElement('div');
@@ -93,6 +128,8 @@
     label.textContent = dbName;
     head.append(arrow, label);
     const children = document.createElement('div');
+    children.className = 'tree-db-colls';
+    Object.assign(children.dataset, { conn: connId, db: dbName });
     children.hidden = true;
     children.setAttribute('role', 'group');
     let loaded = false;
@@ -117,31 +154,8 @@
           empty.textContent = '(no collections)';
           children.appendChild(empty);
         }
-        colls.forEach(({ name, count }) => {
-          const row = document.createElement('div');
-          row.className = 'tree-coll';
-          Object.assign(row.dataset, { conn: connId, db: dbName, coll: name });
-          const n = document.createElement('span');
-          n.className = 'tree-coll-name';
-          n.textContent = name;
-          const c = document.createElement('span');
-          c.className = 'tree-count muted';
-          c.textContent = fmtCount(count);
-          row.append(n, c);
-          if (connId === App.state.connectionId && dbName === App.state.db
-            && name === App.state.collection) row.classList.add('active');
-          row.addEventListener('click', () => {
-            document.querySelectorAll('#connections-panel .tree-coll.active')
-              .forEach((el) => el.classList.remove('active'));
-            row.classList.add('active');
-            App.setTarget(connId, dbName, name);
-          });
-          treeItem(row, () => row.click());
-          row.addEventListener('keydown', (e) => {
-            if (e.key === 'ArrowLeft') { e.preventDefault(); head.focus(); }
-          });
-          children.appendChild(row);
-        });
+        colls.forEach(({ name, count }) => children.appendChild(collRow(connId, dbName, name, count, head)));
+        children.dataset.loaded = '1';
       } catch (e) {
         loaded = false;
         children.textContent = '';
@@ -1123,11 +1137,18 @@
   // t is the target the write went to — the user may have moved on since.
   function wrote(t) {
     App.emit('collection-changed', t);
+    reloadIfShown(t);
+  }
+
+  function reloadIfShown(t) {
     const s = App.state;
     if (s.connectionId !== t.connectionId || s.db !== t.db || s.collection !== t.collection) return;
     g.needCount = true;
     load();
   }
+
+  // Writes made elsewhere (the Import tab) ask for the grid to be reloaded too.
+  App.on('collection-changed', (t) => { if (t.reload) reloadIfShown(t); });
 
   const projected = () => !!g.projection && g.projection !== '{}';
 

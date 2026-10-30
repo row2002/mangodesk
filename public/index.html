@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="css/browser.css">
   <link rel="stylesheet" href="css/querybuilder.css">
   <link rel="stylesheet" href="css/export.css">
+  <link rel="stylesheet" href="css/import.css">
 </head>
 <body>
   <header id="topbar">
@@ -30,10 +31,12 @@
       <nav id="tabs">
         <button class="tab-btn active" data-tab="data">Data</button>
         <button class="tab-btn" data-tab="export">Export</button>
+        <button class="tab-btn" data-tab="import">Import</button>
         <button id="qb-toggle" class="active" title="Toggle Visual Query Builder">◧ Query Builder</button>
       </nav>
       <section id="tab-data" class="tab-content active"></section>
       <section id="tab-export" class="tab-content"></section>
+      <section id="tab-import" class="tab-content"></section>
     </main>
     <aside id="query-panel"></aside>
   </div>
@@ -43,5 +46,6 @@
   <script src="js/browser.js"></script>
   <script src="js/querybuilder.js"></script>
   <script src="js/export.js"></script>
+  <script src="js/import.js"></script>
 </body>
 </html>

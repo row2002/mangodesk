@@ -156,10 +156,24 @@ One JSON file, shown on start, in the connection form and in the `?` help dialog
   strips; live filter preview; state is kept per collection; Run sends the query to
   the Data tab.
 - **Export** — current query results as JSON array, NDJSON (both canonical Extended
-  JSON, which `mongoimport` reads back losslessly) or CSV (streamed, every column
-  found in the result). CSV renders BSON scalars as plain values (`12.34`, not
-  `{"$numberDecimal":"12.34"}`) and has an Excel mode: UTF-8 BOM, `;` separator,
-  CRLF. A failing export shows the error instead of downloading an empty file.
+  JSON, which `mongoimport` and the Import tab read back losslessly) or CSV
+  (streamed, every column found in the result). CSV renders BSON scalars as plain
+  values (`12.34`, not `{"$numberDecimal":"12.34"}`) and has an Excel mode: UTF-8
+  BOM, `;` separator, CRLF. A failing export shows the error instead of downloading
+  an empty file.
+- **Import** — drop a JSON array, NDJSON or CSV file on the Import tab (or pick
+  one) to load it into the current collection or a new one. JSON and NDJSON are read
+  as Extended JSON, so an export comes back with every type intact: Long, `1.0`
+  Doubles, Decimal128, dates, ObjectId, binary. CSV takes its field names from the
+  header row (`address.city` builds a nested document) and finds the separator
+  itself, including the Excel mode export writes. A preview shows the columns with a
+  type for each (Auto, String, Number, Boolean, Date, ObjectId; ObjectId columns are
+  spotted from the sample). Auto reads `true`/`false`, numbers, ISO dates and JSON
+  `{…}`/`[…]`, and leaves empty cells out. Insert, or upsert by `_id`
+  (replacing the stored document); stop at the first error or skip failing documents.
+  The file is streamed and written in batches of 1000, so size is not a problem. The
+  result lists inserted / replaced / failed counts and the first errors by line.
+  CSV can't say whether `5` was an Int32 or a Long, so use JSON for exact types.
 - **Shell** — light and dark themes (follows the OS by default), keyboard shortcuts
   (`?` lists them: `Ctrl+Enter` run, `Ctrl+F` filter, `Alt+←/→` paging, `Esc`
   close), visible focus rings, version in the top bar, a banner when the server has
@@ -269,8 +283,9 @@ MANGODESK_TEST_MONGO=mongodb://127.0.0.1:27017 npm test   # plus the integration
 ```
 
 Unit tests cover the CLI, the connections store, the Host/Origin guard, EJSON round
-trips, the mongosh printer/parser and the CSV helpers; the integration tests run the
-API against a real MongoDB and are skipped when `MANGODESK_TEST_MONGO` is unset. CI
+trips, the mongosh printer/parser, the CSV helpers and the import parsers; the
+integration tests run the API against a real MongoDB (including export → import
+round trips that check every BSON type) and are skipped when `MANGODESK_TEST_MONGO` is unset. CI
 runs them on Linux, macOS and Windows with Node 22, 24 and 26, plus a build and smoke
 test of the Linux binary.
 
