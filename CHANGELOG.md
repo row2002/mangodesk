@@ -21,6 +21,15 @@ for a tag (`## [X.Y.Z] - date`) into the GitHub release notes.
   `POST …/collections/:coll/indexes` and `DELETE …/indexes/:name`. Creating a
   collection that exists is a 400 and dropping an index that doesn't a 404, on every
   server version (MongoDB 7 accepts the first and MongoDB 8 the second silently).
+- Import tab: load a JSON array, NDJSON or CSV file into a collection by drag and drop
+  or the file picker. JSON and NDJSON are read as canonical Extended JSON, so
+  MangoDesk's own exports come back with Long, Double `1.0`, Decimal128, dates and
+  ObjectIds intact. CSV: field names from the header row (dotted names build nested
+  documents), separator detection including export's Excel mode (`;`, UTF-8 BOM), and
+  a type per column (Auto, String, Number, Boolean, Date, ObjectId). Insert or upsert
+  by `_id`; stop at the first error or continue. The upload is streamed and written in
+  batches, and the result shows inserted / replaced / failed counts with the first
+  errors by line. The sidebar picks up the new counts, and a new collection.
 
 ## [0.3.0] - 2026-10-25
 

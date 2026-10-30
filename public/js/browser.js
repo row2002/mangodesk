@@ -65,14 +65,20 @@
 
   const fmtCount = (n) => (typeof n === 'number' ? n.toLocaleString() : String(n));
 
-  // Counts go stale after every insert/delete — re-read them for that database.
+  // Counts go stale after every insert/delete — re-read them for that database. A
+  // collection the write created (an import into a new name) gets its row too, in an
+  // expanded database.
   async function refreshCounts(connId, dbName) {
-    const rows = [...document.querySelectorAll('#connections-panel .tree-coll[data-coll]')]
-      .filter((r) => r.dataset.conn === connId && r.dataset.db === dbName);
-    if (!rows.length) return;
+    const node = [...document.querySelectorAll('#connections-panel .tree-db')]
+      .find((n) => n.dataset.conn === connId && n.dataset.db === dbName);
+    const rows = node ? [...node.querySelectorAll('.tree-coll[data-coll]')] : [];
+    const expanded = node && node.querySelector('.tree-db-head').getAttribute('aria-expanded') === 'true';
+    if (!rows.length && !expanded) return;
     try {
       const colls = await App.api(
         `/api/connections/${encodeURIComponent(connId)}/databases/${encodeURIComponent(dbName)}/collections`);
+      const known = new Set(rows.map((r) => r.dataset.coll));
+      if (expanded && colls.some((c) => !known.has(c.name))) { await reloadTree(connId, dbName); return; }
       const counts = new Map(colls.map((c) => [c.name, c.count]));
       rows.forEach((r) => {
         if (counts.has(r.dataset.coll)) r.querySelector('.tree-count').textContent = fmtCount(counts.get(r.dataset.coll));
@@ -1293,11 +1299,18 @@
   // t is the target the write went to — the user may have moved on since.
   function wrote(t) {
     App.emit('collection-changed', t);
+    reloadIfShown(t);
+  }
+
+  function reloadIfShown(t) {
     const s = App.state;
     if (s.connectionId !== t.connectionId || s.db !== t.db || s.collection !== t.collection) return;
     g.needCount = true;
     load();
   }
+
+  // Writes made elsewhere (the Import tab) ask for the grid to be reloaded too.
+  App.on('collection-changed', (t) => { if (t.reload) reloadIfShown(t); });
 
   const projected = () => !!g.projection && g.projection !== '{}';
 
