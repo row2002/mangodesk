@@ -452,6 +452,7 @@
   function renderNode(rec) {
     const node = el('div', 'conn-node');
     const item = el('div', 'conn-item');
+    item.dataset.conn = rec.id; // the tree's context menu (browser.js) reads it
     if (rec.id === selectedId) item.classList.add('selected');
 
     const arrow = el('span', 'tree-arrow', expanded.has(rec.id) ? '▾' : '▸');
