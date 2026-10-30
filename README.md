@@ -46,11 +46,11 @@ start `mangodesk` (`mangodesk.exe` on Windows). No Node.js needed.
 
 | System | File |
 |---|---|
-| Windows 10/11, x64 | `mangodesk-v0.3.0-win-x64.zip` |
-| macOS, Apple Silicon | `mangodesk-v0.3.0-macos-arm64.tar.gz` |
-| macOS, Intel | `mangodesk-v0.3.0-macos-x64.tar.gz` |
-| Linux, x64 | `mangodesk-v0.3.0-linux-x64.tar.gz` |
-| Linux, arm64 | `mangodesk-v0.3.0-linux-arm64.tar.gz` |
+| Windows 10/11, x64 | `mangodesk-v0.4.0-win-x64.zip` |
+| macOS, Apple Silicon | `mangodesk-v0.4.0-macos-arm64.tar.gz` |
+| macOS, Intel | `mangodesk-v0.4.0-macos-x64.tar.gz` |
+| Linux, x64 | `mangodesk-v0.4.0-linux-x64.tar.gz` |
+| Linux, arm64 | `mangodesk-v0.4.0-linux-arm64.tar.gz` |
 
 It opens http://localhost:27080 in your default browser. The terminal window *is*
 the server: keep it open while you work; Ctrl+C (or closing the window) stops
@@ -78,7 +78,7 @@ Node 22 or newer:
 npx mangodesk
 ```
 
-This runs the latest release from npm (`npx mangodesk@0.3.0` pins one). The
+This runs the latest release from npm (`npx mangodesk@0.4.0` pins one). The
 current `main` straight from GitHub: `npx github:row2002/mangodesk`.
 
 ### From source
@@ -270,10 +270,10 @@ binary is ad-hoc signed with `codesign`.
 
 ## Releasing
 
-1. Bump the version: `npm version 0.3.0 --no-git-tag-version` (package.json and
+1. Bump the version: `npm version 0.4.0 --no-git-tag-version` (package.json and
    the lockfile).
-2. Add a `## [0.3.0] - YYYY-MM-DD` section to [CHANGELOG.md](CHANGELOG.md).
-3. Commit, then push a tag: `git tag v0.3.0 && git push origin main v0.3.0`.
+2. Add a `## [0.4.0] - YYYY-MM-DD` section to [CHANGELOG.md](CHANGELOG.md).
+3. Commit, then push a tag: `git tag v0.4.0 && git push origin main v0.4.0`.
 
 [`release.yml`](.github/workflows/release.yml) then runs the tests, builds and
 smoke-tests the five binaries on native runners, and attaches them with
