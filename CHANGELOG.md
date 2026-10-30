@@ -7,6 +7,8 @@ for a tag (`## [X.Y.Z] - date`) into the GitHub release notes.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-30
+
 ### Added
 - Right-click menu in the sidebar tree: create a database (by creating its first
   collection), create / rename / clear / drop a collection, drop a database. Drops
@@ -131,7 +133,8 @@ First public release.
 - Export as JSON, NDJSON or CSV (with an Excel mode).
 - Light and dark themes, keyboard shortcuts.
 
-[Unreleased]: https://github.com/row2002/mangodesk/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/row2002/mangodesk/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/row2002/mangodesk/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/row2002/mangodesk/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/row2002/mangodesk/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/row2002/mangodesk/releases/tag/v0.1.0
